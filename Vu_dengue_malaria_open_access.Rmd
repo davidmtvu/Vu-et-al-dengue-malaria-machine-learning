@@ -1,0 +1,183 @@
+---
+title: "Vu et al dengue malaria co-infection and machine learning"
+output: html_notebook
+---
+
+##This file contains R code for Vu et al
+##Data provided is already cleaned, however code used for cleaning is provided as notes for reference
+
+##Initial data cleaning code for MS. The following new variables were created:
+##"redcap" which abbreviates "redcap_event_name"
+##"ms_site" (C,K,R,M,U)
+##"ms_region" (C,W)
+##"ms_rural" (1,0)
+##"dob" cleaned date_of_birth_aic" should be removed for deidentification
+##"ms_visitdate" cleaned "interview_date_aic"
+##"ms_age_days" = ms_visitdate-dob in days
+##"ms_age_years" = ms_age_days/365
+##"all_symptoms"
+##"pe_all"
+##"all_clinvars" containing both all_symptoms and pe_all
+##dummy coded variables "sym_xxx" and "p_xxx"
+
+##Data downloaded from RedCap on 1/21/21
+```{r}
+#setwd("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS") #need to run on console
+#library(redcapAPI)
+#library(REDCapR)
+#Redcap.token <- readLines("C:/Users/David Vu/Documents/Work/REDCap Data/LaBeaud R01/RedCapToken.txt") # Read API token from folder
+#REDcap.URL  <- 'https://redcap.stanford.edu/api/'
+#rcon <- redcapConnection(url=REDcap.URL, token=Redcap.token)
+#export data from redcap to R (must be connected via cisco VPN)
+#R01<-redcap_read_oneshot(redcap_uri= REDcap.URL, token=Redcap.token, raw_or_label = "raw", raw_or_label_headers = "raw", guess_type = FALSE, guess_max = 1000L, verbose = TRUE, config_options = NULL)$data #This worked
+#save(R01, file=paste(Sys.Date(),"R01.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2021-01-21_R01.rda") #most recent working file, 84912 obs 1611 variables
+```
+#Remove erroneous records
+#in AIC database, person_id's are xF#### format. Some are xFA### or xF###. Reviewed REDCap database and these are duplicate records with little or no data. The records have now been deleted on the REDCap database as of June 12, 2020. 
+#Note HCC has not been looked at
+#Data cleaning: Check to see if there are abnormal person_id's
+```{r}
+df<-R01
+#2nd character of person_id should be either F for AIC or C for HCC
+#3rd character should be a number
+#Look for xFA### person_ids which need to be fixed
+table(substr(df$person_id, 2, 3)) #Observed "CA" "CB" "CC" "CD" "CE" "CF" but no "FA", indicating redcap record has been corrected
+#MF3210 has only vA parent PedsQL data, no patient info or other results
+#UF3423 has only vB PedsQL data, no patient info or other results
+#MF494 is an empty record
+#MF9917 has vB and U24. vB only has PedsQL, U24 record is empty
+#will remove these records from working dataframe
+dfclean<-df[!(df$person_id=="MF494"|df$person_id=="MF3210"|df$person_id=="MF9917"|df$person_id=="UF3423"),]
+table(substr(dfclean$person_id, 2, 3))
+df<-dfclean #84907 obs 1611 var
+#Save
+save(df, file=paste(Sys.Date(),"AIC_personID_clean.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-05-18_AIC_personID_clean.rda") #84907 obs of 1611 variables
+```
+#Data cleaning: Clean (collapse) visit dates
+```{r}
+#explore data; looks like "interview_date_aic" has most data, but all columns contain at least some data
+#many interview_date_aic entries are "1900-01-01"
+#explored REDCap databased online, looks like visits with "1900-01-01" only have that as a data element under the instrument "Aic Merged", without any other information associated with that visit. This may have been unintentionally created during upload of data from earlier in the study prior to REDCap.
+
+#create "ms_visitdate" variable using interview_date_aic as first source
+df$ms_visitdate<-df$interview_date_aic
+#need to remove all dates that are "1900-01-01"
+df$ms_visitdate[df$ms_visitdate=="1900-01-01"] <- NA
+#use "interview_date" variable to fill in some missing
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$interview_date)]
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$interview_date[is.na(df$ms_visitdate)]
+#use "date_collected" which is the sample collection date
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_collected)]
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_collected[is.na(df$ms_visitdate)]
+#use "date_collected_microscopy..."
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_collected_microscopy_malaria_kenya)]
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_collected_microscopy_malaria_kenya[is.na(df$ms_visitdate)]
+#use "date_tested_microscopy_malaria_kenya"
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_tested_microscopy_malaria_kenya)] 
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_tested_microscopy_malaria_kenya[is.na(df$ms_visitdate)]
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$pedsql_date_parent)] #will need to be careful because it is not certain that peds ql was done on first visit in all cases
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$pedsql_date_parent[is.na(df$ms_visitdate)]
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$pedsql_date)]
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$pedsql_date[is.na(df$ms_visitdate)]
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_tested_parasitology)] 
+df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_tested_parasitology[is.na(df$ms_visitdate)]
+df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_tested_stool_test_)] 
+df$person_id[is.na(df$ms_visitdate)&!is.na(df)]
+df$ms_visitdate<-as.Date(df$ms_visitdate)#define as a date
+
+save(df, file=paste(Sys.Date(),"visitdate_clean.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-05-18_visitdate_clean.rda")
+```
+#Subset data to AIC only
+```{r}
+entire_R01
+AIC<-df[which(substr(df$person_id, 2, 2)=="F"),] #has 52789 obs
+```
+
+#Data cleaning: Date of birth 
+```{r}
+library(tidyr)
+temp<-df[,(grep("date", names(df), value=TRUE))]
+ls(temp)
+#Veiwed all variables containing "date" and only the following contain data relevant to either dob or visit: "date_collected", "date_collected_microscopy_malaria_kenya", "date_collected_other_kenya", "date_collected_rdt_denv_kenya", "date_collected_rdt_malaria_kenya", "date_of_birth", "date_of_birth_aic", "date_symptom_onset", "date_tested_microscopy_malaria_kenya", "date_tested_other_kenya", "date_tested_parasitology", "date_tested_rdt_denv_kenya", "date_tested_rdt_malaria_kenya", "date_tested_stool_test_", "date_tested_urine_test", "dem_interviewdate", "interview_date", "interview_date_aic", "pedsql_date", "pedsql_date_parent", "sample_collection_date", "u24_date_of_birth", "u24_interview_date", "visit_date"
+dfdates<-df[, grepl("person_id|redcap|date", names(df))]
+ls(dfdates)
+#dfdates<-dfdates[, !grepl("collected|extracted|tested", names(dfdates))]
+#dfvdate<-dfdates[, grepl("person_id|redcap|date_collected|date_of_birth|symptom|interview", names(dfdates))]
+#ls(dfvdate)
+#dfdates<-dfvdate
+
+#------------clean birthdate, creating "dob" variable
+#explore data: Two date of birth variables
+length(dfdates$date_of_birth_aic[!is.na(dfdates$date_of_birth_aic)]) #14470 entries excluding NA
+length(unique(dfdates$date_of_birth_aic[!is.na(dfdates$date_of_birth_aic)])) #3341 unique
+table(dfdates$person_id[dfdates$date_of_birth_aic!=dfdates$date_of_birth]) #discordance for KF0091 KF0997 KF1005 KF1012 RF0430 RF0536 RF0584 RF0643 RF0666 RF0737 RF0743 RF0745 RF0746 RF0758 RF0769 RF0781 RF0791 RF0792
+discordlist<-dfdates$person_id[dfdates$date_of_birth_aic!=dfdates$date_of_birth]
+discord<-dfdates[dfdates$person_id %in% discordlist,]
+#for all with discordant dates, the most frequently reported date was from date_of_birth_aic column for vA.
+#Do all vA have date_of_birth_aic?
+sum(is.na(dfdates$date_of_birth_aic[dfdates$redcap_event_name=="visit_a_arm_1"])) #351 missing
+#Subjects assigned person_id but not enrolled do not have patient_info
+#Subset on subjects with patient_info
+enrolledIDs<-dfdates$person_id[dfdates$redcap_event_name=="patient_informatio_arm_1"] #7543 enrolled
+enrolled<-dfdates[dfdates$person_id %in% enrolledIDs,] #50299 obs
+length(unique(enrolled$person_id[is.na(enrolled$date_of_birth_aic)&enrolled$redcap_event_name=="visit_a_arm_1"])) #only 10 missing date_of_birth_aic from visit A
+missinglist<-unique(enrolled$person_id[is.na(enrolled$date_of_birth_aic)&enrolled$redcap_event_name=="visit_a_arm_1"]) 
+missingdf<-enrolled[enrolled$person_id %in% missinglist,]
+#No dob data: CF0023, CF0026, RF0117, RF0253, RF0948, RF0950
+#dob data from other visits: MF2317, MF2318, MF 2360, RF0325
+#No data under date_of_birth for those missing date_of_birth_aic
+#for those with both "date_of_birth_aic" and "date_of_birth", identify those that do not match
+unmatched<-enrolled[!is.na(enrolled$date_of_birth_aic)&!is.na(enrolled$date_of_birth)&(enrolled$date_of_birth_aic!=enrolled$date_of_birth),] #18 values where date_of_birth and date_of_birth_aic do not match
+#For those person_id look at other visits
+unmatchedallvisits<-enrolled[enrolled$person_id %in% as.list(unmatched$person_id),] #in all 18 mismatches, additional data from follow up visits indicate that the most frequently reported date is listed in vA date_of_birth_aic
+```
+
+```{r}
+#Load original data, delete prior to publication "2022-01-13_AIC_personID_clean.rda"
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-01-13_AIC_personID_clean.rda")
+#Subset to AIC
+AIC<-df[which(substr(df$person_id, 2, 2)=="F"),] #has 52789 obs
+```
+
+#Create deidentified dataframe
+```{r}
+#Import subject numbers and visit
+df <- AIC[c("person_id", "redcap_event_name")]
+names(df)[names(df)== "redcap_event_name"]<-"redcap"
+df$redcap[df$redcap=="patient_informatio_arm_1"]<-"info"
+df$redcap[df$redcap=="visit_a_arm_1"]<-"a"
+df$redcap[df$redcap=="visit_a2_arm_1"]<-"a2"
+df$redcap[df$redcap=="visit_b_arm_1"]<-"b"
+df$redcap[df$redcap=="visit_b2_arm_1"]<-"b2"
+df$redcap[df$redcap=="visit_c_arm_1"]<-"c"
+df$redcap[df$redcap=="visit_c2_arm_1"]<-"c2"
+df$redcap[df$redcap=="visit_d_arm_1"]<-"d"
+df$redcap[df$redcap=="visit_d2_arm_1"]<-"d2"
+df$redcap[df$redcap=="visit_e_arm_1"]<-"e"
+df$redcap[df$redcap=="visit_f_arm_1"]<-"f"
+df$redcap[df$redcap=="visit_g_arm_1"]<-"g"
+df$redcap[df$redcap=="visit_h_arm_1"]<-"h"
+df$redcap[df$redcap=="visit_i_arm_1"]<-"i"
+df$redcap[df$redcap=="visit_j_arm_1"]<-"j"
+df$redcap[df$redcap=="visit_u24_arm_1"]<-"u"
+df$redcap[df$redcap=="visit_u24_fu_arm_1"]<-"u2"
+table(df$redcap)
+setwd("C:/Users/david/Documents/GitHub/Public/Vu-et-al-dengue-malaria-machine-learning") 
+save(df, file=paste(Sys.Date(),"de-identified.rda", sep="_"))
+#Import 
+
+```
+#Screened vs enrolled
+```{r}
+#Number of assigned person_id = screened participants
+library(dplyr) 
+n_distinct(df$person_id) #8004 screened
+#Number of enrolled = those with redcap=="info"
+table(df$redcap, exclude = NULL)#7543 enrolled
+```
+
+
+
