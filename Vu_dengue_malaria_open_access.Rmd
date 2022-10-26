@@ -4,179 +4,968 @@ output: html_notebook
 ---
 
 ##This file contains R code for Vu et al
-##Data provided is already cleaned, however code used for cleaning is provided as notes for reference
+##Data are cleaned
+##Data dictionary
 
-##Initial data cleaning code for MS. The following new variables were created:
-##"redcap" which abbreviates "redcap_event_name"
-##"ms_site" (C,K,R,M,U)
-##"ms_region" (C,W)
-##"ms_rural" (1,0)
-##"dob" cleaned date_of_birth_aic" should be removed for deidentification
-##"ms_visitdate" cleaned "interview_date_aic"
-##"ms_age_days" = ms_visitdate-dob in days
-##"ms_age_years" = ms_age_days/365
-##"all_symptoms"
-##"pe_all"
-##"all_clinvars" containing both all_symptoms and pe_all
-##dummy coded variables "sym_xxx" and "p_xxx"
+##"person_id": individual subject id
+##"redcap": visit (a=acute febrile visit, b=follow up convalescent visit)
+##"ms_site": study site (C=Chulaimbo, K=Kisumu, R=Chulaimbo, M=Msambweni, U=Ukunda)
+##"ms_region": coast (C) vs west (W)
+##"ms_rural": (1=rural, 0=urban)
+##"ms_age_years": age in years
+##"pe_***": binary variables for individual physical exam findings (1=present, 0=not present)
+##"sym_***": binary variables for individual symptoms (1=reported, 0=not reported)
+##"wfaz": weight for age z-score
+##"lfaz": length for age z-score
+##"hfaZ": height for age z-score
+##"bmiAgeZ": body mass index for age z-score
+##"afi": (1=acute febrile illness, 0=no febrile illness)
+##"ses_sum": wealth index
+##"***_score": PedsQL score converted to 0-100 scale
+##"ms_female": (1=female, 0=male)
+##"ms_visityear": Year of acute visit (range 2014-2019)
+##"ms_visitmonth": Month of visit
+##"ms_strata": Infection strata (DM=dengue/malaria coinfected, Dm=dengue solo-infected, dM=malaria solo-infected, dm=dengue/malaria uninfected)
+##"ms_denv": dengue test result (1:positive, 0:negative)
+##"ms_malaria": malaria test result (1:positive, 0:negative)
+##"ms_notdenvmal": (1: dengue test AND malaria test negative, 0:either dengue or malaria test positive)
+##"ms_denvmal_coinfect": (1:dengue AND malaria test positive, 0:either dengue or malaria test negative)
+##"ms_denv_dxCO": clinician diagnosis (1:diagnosis of dengue, 0:no diagnosis of dengue)
+##"ms_malaria_dxCO": clinician diagnosis (1:diagnosis of malaria, 0:no diagnosis of malaria)
+##"ms_notdenvmal_dxCO": clinician diagnosis (1:diagnosis other than dengue or malaria, 0:diagnosed either dengue or malaria)
+##"ms_rec_admit": clinician recommendation for hospitalization (1: recommended to be admitted, 0: no admission)
+##All remaining variables are raw data prior to cleaning and/or score conversion
+##Note date of birth and visit dates were removed prior to publication along with any other personal identifiers
 
-##Data downloaded from RedCap on 1/21/21
+#Creation of deidentified data set
 ```{r}
-#setwd("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS") #need to run on console
-#library(redcapAPI)
-#library(REDCapR)
-#Redcap.token <- readLines("C:/Users/David Vu/Documents/Work/REDCap Data/LaBeaud R01/RedCapToken.txt") # Read API token from folder
-#REDcap.URL  <- 'https://redcap.stanford.edu/api/'
-#rcon <- redcapConnection(url=REDcap.URL, token=Redcap.token)
-#export data from redcap to R (must be connected via cisco VPN)
-#R01<-redcap_read_oneshot(redcap_uri= REDcap.URL, token=Redcap.token, raw_or_label = "raw", raw_or_label_headers = "raw", guess_type = FALSE, guess_max = 1000L, verbose = TRUE, config_options = NULL)$data #This worked
-#save(R01, file=paste(Sys.Date(),"R01.rda", sep="_"))
-load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2021-01-21_R01.rda") #most recent working file, 84912 obs 1611 variables
+#Load final data set used for analysis
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-11_ms_subset.rda") 
+#Load cleaned data set to add back raw symptoms, physical exam, pedsql data
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-11_admit.rda")
 ```
-#Remove erroneous records
-#in AIC database, person_id's are xF#### format. Some are xFA### or xF###. Reviewed REDCap database and these are duplicate records with little or no data. The records have now been deleted on the REDCap database as of June 12, 2020. 
-#Note HCC has not been looked at
-#Data cleaning: Check to see if there are abnormal person_id's
+##Select variables
 ```{r}
-df<-R01
-#2nd character of person_id should be either F for AIC or C for HCC
-#3rd character should be a number
-#Look for xFA### person_ids which need to be fixed
-table(substr(df$person_id, 2, 3)) #Observed "CA" "CB" "CC" "CD" "CE" "CF" but no "FA", indicating redcap record has been corrected
-#MF3210 has only vA parent PedsQL data, no patient info or other results
-#UF3423 has only vB PedsQL data, no patient info or other results
-#MF494 is an empty record
-#MF9917 has vB and U24. vB only has PedsQL, U24 record is empty
-#will remove these records from working dataframe
-dfclean<-df[!(df$person_id=="MF494"|df$person_id=="MF3210"|df$person_id=="MF9917"|df$person_id=="UF3423"),]
-table(substr(dfclean$person_id, 2, 3))
-df<-dfclean #84907 obs 1611 var
-#Save
-save(df, file=paste(Sys.Date(),"AIC_personID_clean.rda", sep="_"))
-load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-05-18_AIC_personID_clean.rda") #84907 obs of 1611 variables
+deident<-df[, c("person_id", "redcap", "gender_aic", "child_height_aic", "child_weight_aic", "symptoms_aic", "oth_symptoms_aic", "temp", "head_neck_exam", "clinician_notes_headneck", "chest", "clinician_notes_chest", "heart", "clinician_notes_heart", "abdomen", "location_abdomen_tenderness", "clinician_notes_abdomen", "nodes", "oth_nodes", "clinician_notes_nodes", "joints", "joint_location", "clinician_notes_joints", "skin", "oth_skin", "clinician_notes_skin", "neuro", "oth_neuro", "clinician_notes_neuro", "pedsql_walk_infants_parent", "pedsql_run_infants_parent", "pedsql_play_infants_parent", "pedsql_lift_infants_parent", "pedsql_work_infants_parent", "pedsql_fear_infants_parent", "pedsql_sad_infants_parent", "pedsql_angry_infants_parent", "pedsql_scared_infants_parent", "pedsql_agreement_infants_parent", "pedsql_rejected_infants_parent", "pedsql_bullied_infants_parent", "pedsql_understand_infants_parent", "pedsql_forget_infants_parent", "pedsql_schoolhomework_infants_parent", "pedsql_walk_parent", "pedsql_run_parent", "pedsql_play_parent", "pedsql_lift_parent", "pedsql_work_parent", "pedsql_fear_parent", "pedsql_sad_parent", "pedsql_angry_parent", "pedsql_scared_parent", "pedsql_agreement_parent", "pedsql_rejected_parent", "pedsql_bullied_parent", "pedsql_understand_parent", "pedsql_forget_parent", "pedsql_schoolhomework_parent", "pedsql_walk_teen_parent", "pedsql_run_teen_parent", "pedsql_play_teen_parent", "pedsql_lift_teen_parent", "pedsql_work_teen_parent", "pedsql_fear_teen_parent", "pedsql_sad_teen_parent", "pedsql_angry_teen_parent", "pedsql_scared_teen_parent", "pedsql_agreement_teen_parent", "pedsql_rejected_teen_parent", "pedsql_bullied_teen_parent", "pedsql_understand_teen_parent", "pedsql_forget_teen_parent", "pedsql_schoolhomework_teen_parent", "pedsql_walk_child_812_parent", "pedsql_run_child_812_parent", "pedsql_play_child_812_parent", "pedsql_lift_child_812_parent", "pedsql_work_child_812_parent", "pedsql_fear_child_812_parent", "pedsql_sad_child_812_parent", "pedsql_angry_child_812_parent", "pedsql_scared_child_812_parent", "pedsql_agreement_child_812_parent", "pedsql_rejected_child_812_parent", "pedsql_bullied_child_812_parent", "pedsql_understand_child_812_parent", "pedsql_forget_child_812_parent", "pedsql_schoolhomework_child_812_parent", "pedsql_walk_children_parent", "pedsql_run_children_parent", "pedsql_play_children_parent", "pedsql_lift_children_parent", "pedsql_work_children_parent", "pedsql_fear_children_parent", "pedsql_sad_children_parent", "pedsql_angry_children_parent", "pedsql_scared_children_parent", "pedsql_agreement_children_parent", "pedsql_rejected_children_parent", "pedsql_bullied_children_parent", "pedsql_understand_children_parent", "pedsql_forget_children_parent", "pedsql_schoolhomework_children_parent", "pedsql_walk_infants", "pedsql_run_infants", "pedsql_play_infants", "pedsql_lift_infants", "pedsql_work_infants", "pedsql_fear_infants", "pedsql_sad_infants", "pedsql_angry_infants", "pedsql_scared_infants", "pedsql_agreement_infants", "pedsql_rejected_infants", "pedsql_bullied_infants", "pedsql_understand_infants", "pedsql_forget_infants", "pedsql_schoolhomework_infants", "pedsql_walk", "pedsql_run", "pedsql_play", "pedsql_lift", "pedsql_work", "pedsql_fear", "pedsql_sad", "pedsql_angry", "pedsql_scared", "pedsql_agreement", "pedsql_rejected", "pedsql_bullied", "pedsql_understand", "pedsql_forget", "pedsql_schoolhomework", "pedsql_walk_teen", "pedsql_run_teen", "pedsql_play_teen", "pedsql_lift_teen", "pedsql_work_teen", "pedsql_fear_teen", "pedsql_sad_teen", "pedsql_angry_teen", "pedsql_scared_teen", "pedsql_agreement_teen", "pedsql_rejected_teen", "pedsql_bullied_teen", "pedsql_understand_teen", "pedsql_forget_teen", "pedsql_schoolhomework_teen",
+"pedsql_walk_child_812", "pedsql_run_child_812", "pedsql_play_child_812", "pedsql_lift_child_812", "pedsql_work_child_812", "pedsql_fear_child_812","pedsql_sad_child_812", "pedsql_angry_child_812", "pedsql_scared_child_812", "pedsql_agreement_child_812", "pedsql_rejected_child_812", "pedsql_bullied_child_812", "pedsql_understand_child_812", "pedsql_forget_child_812", "pedsql_schoolhomework_child_812", "pedsql_fingers_children", "pedsql_walk_children", "pedsql_run_children", "pedsql_play_children", "pedsql_lift_children", "pedsql_work_children", "pedsql_fear_children", "pedsql_sad_children", "pedsql_angry_children", "pedsql_scared_children", "pedsql_agreement_children", "pedsql_rejected_children", "pedsql_bullied_children", "pedsql_understand_children", "pedsql_forget_children", "pedsql_schoolhomework_children")]
+dfall<-df
+deidentified<-merge(ms, deident, by=c("person_id", "redcap"), all = FALSE)
+save(deidentified, file=paste(Sys.Date(),"deidentified_ms_dataset.rda", sep="_"))
 ```
-#Data cleaning: Clean (collapse) visit dates
+#subset relevant variables for MS
 ```{r}
-#explore data; looks like "interview_date_aic" has most data, but all columns contain at least some data
-#many interview_date_aic entries are "1900-01-01"
-#explored REDCap databased online, looks like visits with "1900-01-01" only have that as a data element under the instrument "Aic Merged", without any other information associated with that visit. This may have been unintentionally created during upload of data from earlier in the study prior to REDCap.
-
-#create "ms_visitdate" variable using interview_date_aic as first source
-df$ms_visitdate<-df$interview_date_aic
-#need to remove all dates that are "1900-01-01"
-df$ms_visitdate[df$ms_visitdate=="1900-01-01"] <- NA
-#use "interview_date" variable to fill in some missing
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$interview_date)]
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$interview_date[is.na(df$ms_visitdate)]
-#use "date_collected" which is the sample collection date
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_collected)]
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_collected[is.na(df$ms_visitdate)]
-#use "date_collected_microscopy..."
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_collected_microscopy_malaria_kenya)]
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_collected_microscopy_malaria_kenya[is.na(df$ms_visitdate)]
-#use "date_tested_microscopy_malaria_kenya"
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_tested_microscopy_malaria_kenya)] 
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_tested_microscopy_malaria_kenya[is.na(df$ms_visitdate)]
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$pedsql_date_parent)] #will need to be careful because it is not certain that peds ql was done on first visit in all cases
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$pedsql_date_parent[is.na(df$ms_visitdate)]
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$pedsql_date)]
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$pedsql_date[is.na(df$ms_visitdate)]
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_tested_parasitology)] 
-df$ms_visitdate[is.na(df$ms_visitdate)]<-df$date_tested_parasitology[is.na(df$ms_visitdate)]
-df$person_id[is.na(df$ms_visitdate)&!is.na(df$date_tested_stool_test_)] 
-df$person_id[is.na(df$ms_visitdate)&!is.na(df)]
-df$ms_visitdate<-as.Date(df$ms_visitdate)#define as a date
-
-save(df, file=paste(Sys.Date(),"visitdate_clean.rda", sep="_"))
-load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-05-18_visitdate_clean.rda")
+temp<-deidentified[, grepl("person_id|redcap|ms_strata|ms_|ses_sum|faz|hfaZ|bmiAgeZ|sym_|pe_|score|total|afi", names(deidentified))]
+ms<-temp[, !grepl("aic", names(temp))]
+names(ms)
+save(ms, file=paste(Sys.Date(),"ms_subset.rda", sep="_"))
 ```
-#Subset data to AIC only
+#Table S1. All enrolled by region or site
 ```{r}
-entire_R01
-AIC<-df[which(substr(df$person_id, 2, 2)=="F"),] #has 52789 obs
+#AFI subset
+afi<-ms[which(ms$afi==1),] #8547 obs, 215 variables
+#subset only vA data
+vA<-afi[which(afi$redcap=="a"),]
+table(vA$ms_region) #W=2544 C=4965
+table(vA$ms_rural) #rural=3241 urban=4268
+table(vA$ms_site) #c=402 R=431 K=1711 M=2408 U=2557 
+#sex
+table(vA$ms_female) #0=male=3924 1=female=3585
+table(vA$ms_female, vA$ms_region)
+prop.table(table(vA$ms_female, vA$ms_region), 2) #column percent 
+chisq.test(table(vA$ms_female, vA$ms_region))
+table(vA$ms_female, vA$ms_rural) 
+prop.table(table(vA$ms_female, vA$ms_rural), 2) 
+chisq.test(table(vA$ms_female, vA$ms_rural))
+#ms_site2 recoding Mbaka Oromo as chulaimbo
+vA$ms_site2<-vA$ms_site
+vA$ms_site2[vA$ms_site2=="R"]<-"C"
+vA$ms_site2<-droplevels(vA$ms_site2)
+table(vA$ms_site, vA$ms_site2)
+table(vA$ms_female, vA$ms_site2) 
+#sex
+prop.table(table(vA$ms_female, vA$ms_site2), 2)
+chisq.test(table(vA$ms_female, vA$ms_site2))
+#age
+class(vA$ms_age_years)
+#shapiro.test(vA$ms_age_years) #error message
+median(vA$ms_age_years, na.rm = TRUE) #4.8
+quantile(vA$ms_age_years, na.rm = TRUE) #IQR 2.9 - 8.4
+mean(vA$ms_age_years, na.rm = TRUE) #6.0
+sd(vA$ms_age_years, na.rm = TRUE) #4.067
+aggregate(x=vA$ms_age_years, by=list(vA$ms_region), FUN=mean, na.rm=TRUE) #C=6.759 W=4.53
+aggregate(x=vA$ms_age_years, by=list(vA$ms_region), FUN=sd, na.rm=TRUE) #C=4.298 W=3.0796
+t.test(ms_age_years ~ ms_region, data = vA) #p-value < 2.2e-16
+t.test(ms_age_years ~ ms_rural, data = vA) #u=6.58 r=5.24 p-value < 2.2e-16
+aggregate(x=vA$ms_age_years, by=list(vA$ms_rural), FUN=sd, na.rm=TRUE) #C=4.298 W=3.0796
+
+#medians
+median(vA$ms_age_years, na.rm = TRUE) #4.8
+range(vA$ms_age_years, na.rm = TRUE) #0.1616438 19.8712329
+quantile(vA$ms_age_years, probs = 0.25, na.rm = TRUE) #2.89
+quantile(vA$ms_age_years, probs = 0.75, na.rm = TRUE) #8.39
+hist(vA$ms_age_years)
+#by region
+aggregate(x=vA$ms_age_years, by=list(vA$ms_region), FUN="median", na.rm=TRUE) #C=5.5 W=3.7
+aggregate(x=vA$ms_age_years, by=list(vA$ms_region), FUN="quantile", probs = 0.25, na.rm=TRUE) #C=3.3 W=2.2
+aggregate(x=vA$ms_age_years, by=list(vA$ms_region), FUN="quantile", probs = 0.75, na.rm=TRUE) #C=9.7 W=5.8
+kruskal.test(ms_age_years ~ ms_region, data = vA) #p-value < 2.2e-16
+#by rural
+aggregate(x=vA$ms_age_years, by=list(vA$ms_rural), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$ms_age_years, by=list(vA$ms_rural), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$ms_age_years, by=list(vA$ms_rural), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(ms_age_years ~ ms_rural, data = vA) 
+#by site2
+aggregate(x=vA$ms_age_years, by=list(vA$ms_site2), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$ms_age_years, by=list(vA$ms_site2), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$ms_age_years, by=list(vA$ms_site2), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(ms_age_years ~ ms_site2, data = vA) 
+#by hfaZ
+median(vA$hfaZ, na.rm = TRUE) #4.8
+range(vA$hfaZ, na.rm = TRUE) #0.1616438 19.8712329
+quantile(vA$hfaZ, probs = 0.25, na.rm = TRUE) #2.89
+quantile(vA$hfaZ, probs = 0.75, na.rm = TRUE) #8.39
+hist(vA$hfaZ)
+#by region
+aggregate(x=vA$hfaZ, by=list(vA$ms_region), FUN="median", na.rm=TRUE) #C=5.5 W=3.7
+aggregate(x=vA$hfaZ, by=list(vA$ms_region), FUN="quantile", probs = 0.25, na.rm=TRUE) #C=3.3 W=2.2
+aggregate(x=vA$hfaZ, by=list(vA$ms_region), FUN="quantile", probs = 0.75, na.rm=TRUE) #C=9.7 W=5.8
+kruskal.test(hfaZ ~ ms_region, data = vA) #p-value < 2.2e-16
+#by rural
+aggregate(x=vA$hfaZ, by=list(vA$ms_rural), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$hfaZ, by=list(vA$ms_rural), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$hfaZ, by=list(vA$ms_rural), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(hfaZ ~ ms_rural, data = vA) 
+#by site2
+aggregate(x=vA$hfaZ, by=list(vA$ms_site2), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$hfaZ, by=list(vA$ms_site2), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$hfaZ, by=list(vA$ms_site2), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(hfaZ ~ ms_site2, data = vA) 
+#by bmiAgeZ
+median(vA$bmiAgeZ, na.rm = TRUE) #4.8
+range(vA$bmiAgeZ, na.rm = TRUE) #0.1616438 19.8712329
+quantile(vA$bmiAgeZ, probs = 0.25, na.rm = TRUE) #2.89
+quantile(vA$bmiAgeZ, probs = 0.75, na.rm = TRUE) #8.39
+hist(vA$bmiAgeZ)
+#by region
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_region), FUN="median", na.rm=TRUE) #C=5.5 W=3.7
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_region), FUN="quantile", probs = 0.25, na.rm=TRUE) #C=3.3 W=2.2
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_region), FUN="quantile", probs = 0.75, na.rm=TRUE) #C=9.7 W=5.8
+kruskal.test(bmiAgeZ ~ ms_region, data = vA) #p-value < 2.2e-16
+#by rural
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_rural), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_rural), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_rural), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(bmiAgeZ ~ ms_rural, data = vA) 
+#by site2
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_site2), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_site2), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$bmiAgeZ, by=list(vA$ms_site2), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(bmiAgeZ ~ ms_site2, data = vA) 
+#by ses_sum
+median(vA$ses_sum, na.rm = TRUE) #4.8
+range(vA$ses_sum, na.rm = TRUE) #0.1616438 19.8712329
+quantile(vA$ses_sum, probs = 0.25, na.rm = TRUE) #2.89
+quantile(vA$ses_sum, probs = 0.75, na.rm = TRUE) #8.39
+hist(vA$ses_sum)
+mean(vA$ses_sum, na.rm = TRUE)#2.186
+sd(vA$ses_sum, na.rm = TRUE)#1.2428
+
+#by region
+aggregate(x=vA$ses_sum, by=list(vA$ms_region), FUN="median", na.rm=TRUE) #C=5.5 W=3.7
+aggregate(x=vA$ses_sum, by=list(vA$ms_region), FUN="quantile", probs = 0.25, na.rm=TRUE) #C=3.3 W=2.2
+aggregate(x=vA$ses_sum, by=list(vA$ms_region), FUN="quantile", probs = 0.75, na.rm=TRUE) #C=9.7 W=5.8
+kruskal.test(ses_sum ~ ms_region, data = vA) #p-value < 2.2e-16
+aggregate(x=vA$ses_sum, by=list(vA$ms_region), FUN="mean", na.rm=TRUE) #C=6.759 W=4.53
+aggregate(x=vA$ses_sum, by=list(vA$ms_region), FUN=sd, na.rm=TRUE) #C=4.298 W=3.0796
+t.test(ses_sum ~ ms_region, data = vA) #p-value < 2.2e-16
+#by rural
+aggregate(x=vA$ses_sum, by=list(vA$ms_rural), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_rural), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_rural), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(ses_sum ~ ms_rural, data = vA) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_rural), FUN="mean", na.rm=TRUE) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_rural), FUN="sd", na.rm=TRUE) 
+t.test(ses_sum ~ ms_rural, data = vA)
+#by site2
+aggregate(x=vA$ses_sum, by=list(vA$ms_site2), FUN="median", na.rm=TRUE) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_site2), FUN="quantile", probs = 0.25, na.rm=TRUE) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_site2), FUN="quantile", probs = 0.75, na.rm=TRUE) 
+kruskal.test(ses_sum ~ ms_site2, data = vA) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_site2), FUN="mean", na.rm=TRUE) 
+aggregate(x=vA$ses_sum, by=list(vA$ms_site2), FUN="sd", na.rm=TRUE) 
+anova(glm(ses_sum ~ ms_site2, data = vA)) #error
+#t.test(ses_sum ~ ms_site2, data = vA)
+```
+#Table S1 using CreateTableOne
+```{r}
+library(tableone)
+#CreateTableOne(vars, strata, data, factorVars, includeNA = FALSE, test = TRUE, testApprox = chisq.test, argsApprox = list(correct = TRUE), testExact = fisher.test, argsExact = list(workspace = 2 * 10^5), testNormal = oneway.test, argsNormal = list(var.equal = TRUE), testNonNormal = kruskal.test, argsNonNormal = list(NULL), smd = TRUE, addOverall = FALSE)
+myVars<-c("hfaZ", "bmiAgeZ", "ms_age_years", "ses_sum")
+catVars<-c("ms_region", "ms_rural", "ms_site2")
+CreateTableOne(vars = myVars, data=vA)
+regtab<-CreateTableOne(vars = myVars, data=vA, strata = "ms_region", testNonNormal = kruskal.test, argsNonNormal = list(NULL), smd = TRUE, addOverall = TRUE)
+print(regtab, nonnormal = myVars,  smd = TRUE)
+rurtab<-CreateTableOne(vars = myVars, data=vA, strata = "ms_rural", testNonNormal = kruskal.test, smd = TRUE, addOverall = TRUE)
+print(rurtab, nonnormal = myVars,  smd = TRUE)
+sitetab<-CreateTableOne(vars = myVars, data=vA, strata = "ms_site2", testNonNormal = kruskal.test, smd = TRUE, addOverall = TRUE)
+print(sitetab, nonnormal = myVars,  smd = TRUE)
+```
+#Table S2 enrolled vs complete cases
+```{r}
+table(vA$ms_strata, exclude = NULL)
+vA$complete<-1
+vA$complete[is.na(vA$ms_strata)]<-0
+table(vA$complete, exclude = NULL) #6208 complete, 1301 excluded
+table(vA$complete, vA$ms_denv, exclude = NULL) #485/6208=7.8% complete
+chisq.test(table(vA$complete, vA$ms_denv)) 
+table(vA$complete, vA$ms_malaria, exclude = NULL) #3145/6208=50.66% complete, 612/1273=48.08% excluded
+chisq.test(table(vA$complete, vA$ms_malaria)) #p-value = 0.09902
+table(vA$complete, vA$ms_female) #3217/6208=51.8% male complete, 707/1301=54.3% male excluded
+chisq.test(table(vA$complete, vA$ms_female)) #p-value = 0.104
+table(vA$complete, vA$ms_rec_admit)
+chisq.test(table(vA$complete, vA$ms_rec_admit))
+myVars<-c("ms_age_years", "hfaZ", "bmiAgeZ", "ses_sum")
+catVars<-c("ms_female", "ms_denv", "ms_malaria", "ms_rec_admit")
+CreateTableOne(vars = myVars, data=vA)
+excltab<-CreateTableOne(vars = myVars, data=vA, strata = "complete", factorVars = catVars, testNonNormal = kruskal.test, argsNonNormal = list(NULL), smd = TRUE, addOverall = TRUE)
+print(excltab, nonnormal = myVars,  smd = TRUE)
+```
+#Table S3
+```{r}
+complete<-vA[which(vA$complete==1),] #6208 obs
+save(complete, file=paste(Sys.Date(),"complete.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-15_complete.rda")
+#Continuous (numerical) variables
+table2<-CreateTableOne(vars = myVars, data=vA, strata = "ms_strata", factorVars = catVars, testNonNormal = kruskal.test, argsNonNormal = list(NULL), smd = TRUE, addOverall = TRUE)
+print(table2, nonnormal = myVars,  smd = TRUE)
+summary(table2)
+#Female
+table(complete$ms_female, complete$ms_strata, exclude = NULL)
+prop.table(table(complete$ms_female, complete$ms_strata, exclude = NULL), 2)
+chisq.test(table(complete$ms_female, complete$ms_strata))
+#ms_admit
+table(complete$ms_rec_admit, complete$ms_strata, exclude = NULL)
+prop.table(table(complete$ms_rec_admit, complete$ms_strata, exclude = NULL), 2)
+chisq.test(table(complete$ms_rec_admit, complete$ms_strata))
+```
+#Table S4. Complete cases by region/site
+```{r}
+#region
+table(complete$ms_strata, complete$ms_region)
+prop.table(table(complete$ms_strata, complete$ms_region), 2) #column percent 
+chisq.test(table(complete$ms_strata, complete$ms_region))
+#rural
+table(complete$ms_strata, complete$ms_rural)
+prop.table(table(complete$ms_strata, complete$ms_rural), 2) #column percent 
+chisq.test(table(complete$ms_strata, complete$ms_rural))
+#site
+table(complete$ms_strata, complete$ms_site2)
+prop.table(table(complete$ms_strata, complete$ms_site2), 2) #column percent 
+chisq.test(table(complete$ms_strata, complete$ms_site2))
+```
+#Table S2. Freq/Odds for all clinical variables
+```{r}
+#For the output to be in a custom order, will need to manually order the clinical variables
+grep("sym_", names(complete), value = TRUE)
+grep("pe_", names(complete), value = TRUE)
+clin_vars<-c('sym_fever', 'sym_chills', 'sym_malaise', 'sym_bodyache', 'sym_anorexia', 'sym_nightsweats', 'sym_itchiness', 'sym_lethargic', 'sym_irritable', 'pe_ne_irritable', 'sym_headache', 'sym_dizziness', 'sym_seizures', 'pe_ne_postictal', 'sym_alteredms', 'pe_ne_lethargic', 'sym_neckstiffness', 'pe_heent_stiffneck', 'sym_photophobia', 'sym_retroorbitalheadache', 'pe_ne_ataxic', 'pe_ne_gaitabnl', 'pe_ne_hyperreflexia', 'pe_ne_hyporeflexia', 'pe_ne_meningismus', 'pe_ne_weakness', 'sym_coryza', 'sym_redeyes', 'pe_heent_red_eyes', 'sym_eyedischarge', 'pe_heent_eye_disch', 'sym_itchy_eyes', 'sym_rhinorrhea', 'pe_heent_nsl_drn_congest', 'sym_otalgia', 'sym_eardc', 'pe_heent_serousotitis', 'sym_pharyngitis', 'pe_heent_pharyngitis', 'sym_mouthsores', 'pe_heent_mouthsores', 'pe_heent_thrush', 'sym_dysgeusia', 'sym_mouth_odor', 'sym_facial_swelling', 'pe_heent_face_swelling', 'sym_sneezing', 'sym_cough', 'sym_chestpain', 'sym_dyspnea', 'pe_chest_dyspnea', 'pe_chest_wheezes', 'pe_chest_tachypnea', 'pe_chest_ronchrale', 'sym_palpitations', 'pe_card_tachy', 'pe_card_murmur', 'pe_card_delayedcaprefill', 'sym_abpain', 'pe_abd_ttpe_any', 'pe_abd_ttpe_left', 'pe_abd_ttpe_right', 'pe_abd_ttpe_lower', 'pe_abd_ttpe_epigastric', 'pe_abd_ttpe_diffuse', 'sym_nausea', 'sym_vomiting', 'sym_diarrhea', 'pe_abd_distended', 'pe_abd_hepatomegaly', 'pe_abd_splemegaly', 'sym_constipation', 'pe_abd_bs_absent', 'pe_abd_bs_hyper', 'sym_myalgia', 'sym_jointpain', 'pe_muskl_jwrmth', 'pe_muskl_jred', 'pe_muskl_jtend', 'sym_bonepain', 'sym_backache', 'pe_muskl_back', 'pe_muskl_weakness', 'pe_muskl_trauma', 'pe_muskl_chest', 'sym_rash', 'pe_derm_rash', 'pe_derm_macpap', 'pe_derm_petech', 'pe_derm_vesicles', 'pe_derm_rash_face', 'pe_derm_rash_torso', 'pe_derm_ssti', 'pe_derm_tnea', 'pe_derm_scar', 'pe_derm_hyperpigment', 'pe_derm_arthropod', 'pe_derm_trauma', 'sym_pallor', 'pe_heme_pallor', 'sym_jaundice', 'pe_heme_jaundice', 'pe_heme_icterus', 'pe_derm_bruising', 'sym_bruising', 'sym_epistaxis', 'sym_bleeding_gums', 'sym_bloody_vomitstool', 'pe_lymph_cerv_aden', 'pe_lymph_axil_aden', 'pe_lymph_inguin_aden', 'pe_lymph_edema_LE', 'pe_lymph_edema', 'sym_extremity_edema', 'sym_swollen_nodes', 'sym_dysuria', 'sym_hematuria')
+
+complete[,clin_vars] <- lapply(complete[,clin_vars], factor) #convert from character to factor
+clinvar_freq_strata<-CreateTableOne(vars = clin_vars, data=complete, factorVars = clin_vars, strata = "ms_strata")
+print(clinvar_freq_strata, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
+summary(clinvar_freq_strata)
+clinvar_freq_strata.csv<-print(clinvar_freq_strata, exact = clin_vars, quote = FALSE, noSpaces = FALSE, includeNA=TRUE, printToggle = FALSE, test = TRUE,
+testApprox = chisq.test,
+argsApprox = list(correct = TRUE), smd = TRUE,
+addOverall = TRUE)
+
+allvars<-print(names(complete))
+write.csv(allvars, file = "allvars.csv")
+#Exclude sparse: total frequency of 5 or less
+nonsparse<-c('sym_chills', 'sym_malaise', 'sym_bodyache', 'sym_anorexia', 'sym_itchiness', 'pe_ne_irritable', 'sym_headache', 'sym_dizziness', 'sym_seizures', 'sym_alteredms', 'pe_ne_lethargic', 'sym_neckstiffness', 'sym_retroorbitalheadache', 'pe_ne_gaitabnl',   'pe_ne_weakness', 'sym_coryza', 'sym_redeyes', 'pe_heent_red_eyes', 'sym_eyedischarge', 'pe_heent_eye_disch', 'sym_rhinorrhea', 'pe_heent_nsl_drn_congest', 'sym_otalgia', 'sym_pharyngitis', 'pe_heent_pharyngitis', 'sym_mouthsores', 'sym_dysgeusia', 'sym_cough', 'sym_chestpain', 'sym_dyspnea', 'pe_chest_dyspnea', 'pe_chest_tachypnea', 'pe_chest_wheezes', 'pe_chest_ronchrale', 'pe_card_tachy', 'pe_card_delayedcaprefill', 'sym_abpain', 'pe_abd_ttpe_any', 'pe_abd_ttpe_diffuse', 'sym_nausea', 'sym_vomiting', 'sym_diarrhea', 'sym_bloody_vomitstool', 'pe_abd_hepatomegaly', 'pe_abd_splemegaly',  'sym_myalgia', 'sym_jointpain', 'pe_muskl_jwrmth', 'pe_muskl_jred', 'pe_muskl_jtend', 'sym_bonepain', 'sym_backache', 'sym_rash', 'pe_derm_rash', 'pe_derm_macpap', 'pe_derm_ssti', 'pe_derm_tnea', 'pe_derm_scar', 'pe_heme_pallor', 'sym_epistaxis','pe_heme_icterus', 'pe_lymph_cerv_aden', 'pe_lymph_axil_aden', 'pe_lymph_inguin_aden', 'sym_dysuria')
+nonsparse_freq_strata<-CreateTableOne(vars = nonsparse, data=complete, factorVars = nonsparse, strata = "ms_strata")
+print(nonsparse_freq_strata, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
+summary(nonsparse_freq_strata)
+nonsparse_freq_strata.csv<-print(nonsparse_freq_strata, exact = nonsparse, quote = FALSE, noSpaces = TRUE, includeNA=TRUE, printToggle = FALSE, test = TRUE,
+testApprox = chisq.test,
+argsApprox = list(correct = TRUE), smd = TRUE,
+addOverall = TRUE)
+write.csv(nonsparse_freq_strata.csv, file = paste(Sys.Date(), "nonsparse_freq_strata.csv", sep = "_"))
+
+#For some reason, it lists p value for sym_vomiting as NA
+chisq.test(complete$ms_strata, complete$sym_vomiting)#p<0.001
+```
+#Table 1. OR with malaria infection as reference
+```{r}
+#change order of factor levels to place malaria infection as reference
+complete$ms_strata <- factor(complete$ms_strata, levels = c("dM", "Dm", "DM", "dm"))
+nonsparse<-c('sym_chills', 'sym_malaise', 'sym_bodyache', 'sym_anorexia', 'sym_itchiness', 'pe_ne_irritable', 'sym_headache', 'sym_dizziness', 'sym_seizures', 'sym_alteredms', 'pe_ne_lethargic', 'sym_neckstiffness', 'sym_retroorbitalheadache', 'pe_ne_gaitabnl',   'pe_ne_weakness', 'sym_coryza', 'sym_redeyes', 'pe_heent_red_eyes', 'sym_eyedischarge', 'pe_heent_eye_disch', 'sym_rhinorrhea', 'pe_heent_nsl_drn_congest', 'sym_otalgia', 'sym_pharyngitis', 'pe_heent_pharyngitis', 'sym_mouthsores', 'sym_dysgeusia', 'sym_cough', 'sym_chestpain', 'sym_dyspnea', 'pe_chest_dyspnea', 'pe_chest_tachypnea', 'pe_chest_wheezes', 'pe_chest_ronchrale', 'pe_card_tachy', 'pe_card_delayedcaprefill', 'sym_abpain', 'pe_abd_ttpe_any', 'pe_abd_ttpe_diffuse', 'sym_nausea', 'sym_vomiting', 'sym_diarrhea', 'sym_bloody_vomitstool', 'pe_abd_hepatomegaly', 'pe_abd_splemegaly',  'sym_myalgia', 'sym_jointpain', 'pe_muskl_jwrmth', 'pe_muskl_jred', 'pe_muskl_jtend', 'sym_bonepain', 'sym_backache', 'sym_rash', 'pe_derm_rash', 'pe_derm_macpap', 'pe_derm_ssti', 'pe_derm_tnea', 'pe_derm_scar', 'pe_heme_pallor', 'sym_epistaxis','pe_heme_icterus', 'pe_lymph_cerv_aden', 'pe_lymph_axil_aden', 'pe_lymph_inguin_aden', 'sym_dysuria')
+#Calculate odds ratios for one symptom
+#vomiting<-glm(sym_vomiting~factor(ms_strata), family="binomial", data = complete)
+#summary(vomiting)
+#exp(coefficients(vomiting))
+#exp(confint(vomiting))
+fits <- lapply(nonsparse, function(x) {glm(substitute(i~factor(ms_strata), list(i = as.name(x))), family="binomial", data = complete)})
+
+
+name<-as.data.frame(nonsparse)
+name
+
+#labeled<-as.data.frame(cbind(nonsparse, fits))  
+
+#print(fits)
+
+#coef<-lapply(fits, coefficients)
+#print(coef)
+
+ORs<-lapply(fits, function(x) {exp(cbind("Odds ratio" = coef(x), confint(x, level = 0.998, parallel="multicore", ncpus=4)))})
+library(broom)
+temp<-lapply(ORs, tidy)
+
+print(ORs)
+summary(ORs)
+
+
+#test<-cbind(nonsparse, coef)
+lapply(ORs, function(x) write.table( data.frame(x), '220508-Table4-ORs-malariaref.csv'  , append= T, sep=',', row.names = TRUE, eol = "\r"))
 ```
 
-#Data cleaning: Date of birth 
+#Table S5 and Figure S1
 ```{r}
-library(tidyr)
-temp<-df[,(grep("date", names(df), value=TRUE))]
-ls(temp)
-#Veiwed all variables containing "date" and only the following contain data relevant to either dob or visit: "date_collected", "date_collected_microscopy_malaria_kenya", "date_collected_other_kenya", "date_collected_rdt_denv_kenya", "date_collected_rdt_malaria_kenya", "date_of_birth", "date_of_birth_aic", "date_symptom_onset", "date_tested_microscopy_malaria_kenya", "date_tested_other_kenya", "date_tested_parasitology", "date_tested_rdt_denv_kenya", "date_tested_rdt_malaria_kenya", "date_tested_stool_test_", "date_tested_urine_test", "dem_interviewdate", "interview_date", "interview_date_aic", "pedsql_date", "pedsql_date_parent", "sample_collection_date", "u24_date_of_birth", "u24_interview_date", "visit_date"
-dfdates<-df[, grepl("person_id|redcap|date", names(df))]
-ls(dfdates)
-#dfdates<-dfdates[, !grepl("collected|extracted|tested", names(dfdates))]
-#dfvdate<-dfdates[, grepl("person_id|redcap|date_collected|date_of_birth|symptom|interview", names(dfdates))]
-#ls(dfvdate)
-#dfdates<-dfvdate
+library(dplyr)
 
-#------------clean birthdate, creating "dob" variable
-#explore data: Two date of birth variables
-length(dfdates$date_of_birth_aic[!is.na(dfdates$date_of_birth_aic)]) #14470 entries excluding NA
-length(unique(dfdates$date_of_birth_aic[!is.na(dfdates$date_of_birth_aic)])) #3341 unique
-table(dfdates$person_id[dfdates$date_of_birth_aic!=dfdates$date_of_birth]) #discordance for KF0091 KF0997 KF1005 KF1012 RF0430 RF0536 RF0584 RF0643 RF0666 RF0737 RF0743 RF0745 RF0746 RF0758 RF0769 RF0781 RF0791 RF0792
-discordlist<-dfdates$person_id[dfdates$date_of_birth_aic!=dfdates$date_of_birth]
-discord<-dfdates[dfdates$person_id %in% discordlist,]
-#for all with discordant dates, the most frequently reported date was from date_of_birth_aic column for vA.
-#Do all vA have date_of_birth_aic?
-sum(is.na(dfdates$date_of_birth_aic[dfdates$redcap_event_name=="visit_a_arm_1"])) #351 missing
-#Subjects assigned person_id but not enrolled do not have patient_info
-#Subset on subjects with patient_info
-enrolledIDs<-dfdates$person_id[dfdates$redcap_event_name=="patient_informatio_arm_1"] #7543 enrolled
-enrolled<-dfdates[dfdates$person_id %in% enrolledIDs,] #50299 obs
-length(unique(enrolled$person_id[is.na(enrolled$date_of_birth_aic)&enrolled$redcap_event_name=="visit_a_arm_1"])) #only 10 missing date_of_birth_aic from visit A
-missinglist<-unique(enrolled$person_id[is.na(enrolled$date_of_birth_aic)&enrolled$redcap_event_name=="visit_a_arm_1"]) 
-missingdf<-enrolled[enrolled$person_id %in% missinglist,]
-#No dob data: CF0023, CF0026, RF0117, RF0253, RF0948, RF0950
-#dob data from other visits: MF2317, MF2318, MF 2360, RF0325
-#No data under date_of_birth for those missing date_of_birth_aic
-#for those with both "date_of_birth_aic" and "date_of_birth", identify those that do not match
-unmatched<-enrolled[!is.na(enrolled$date_of_birth_aic)&!is.na(enrolled$date_of_birth)&(enrolled$date_of_birth_aic!=enrolled$date_of_birth),] #18 values where date_of_birth and date_of_birth_aic do not match
-#For those person_id look at other visits
-unmatchedallvisits<-enrolled[enrolled$person_id %in% as.list(unmatched$person_id),] #in all 18 mismatches, additional data from follow up visits indicate that the most frequently reported date is listed in vA date_of_birth_aic
+if(!require(DescTools)){install.packages("DescTools")}
+library(DescTools)
+if(!require(PropCIs)){install.packages("PropCIs")}
+library(PropCIs)
+tally(complete$sym_chills)
+#proportion with confidence interval for "sym_chills"
+chills %>%
+  group_by(complete$strata_allpos) %>%
+  count(complete$sym_chills) %>% 
+  mutate(prop = n / sum(n), 
+         lower = lapply(n, prop.test, n = sum(n)), 
+         upper = sapply(lower, function(x) x$conf.int[2]), 
+         lower = sapply(lower, function(x) x$conf.int[1]))
+library(tidyverse)
+dat <- data.frame(
+  "type" = c("B","B","A","B","A","A","B","A","A","B","A","A","A","B","B","B"),
+  "num" = c(3,0,0,9,6,0,4,1,1,5,6,1,3,0,0,0)
+) 
+dat %>%
+  group_by(type) %>%
+  summarise( N=n(),
+            mean.ci = list(mean_ci(num)),
+            "Percent"= n_perc(num > 0)) %>% 
+  unnest_wider(mean.ci)
+prop.table(complete$sym_chills, conf.level = 0.99)$conf.int
+exactci(~sym_chills~factor(strata_allpos), alpha=0.05,
+        method=c("wilson","exact","asymptotic","all"),
+        include.x=FALSE, include.n=FALSE, return.df=FALSE)
+#Calculate odds ratios for one symptom
+chills<-glm(sym_chills~factor(strata_allpos), family="binomial", data = complete)
+summary(chills)
+exp(coefficients(chills))
+exp(confint(chills))
+table(complete$strata_allpos)
+complete$strata_allpos <- factor(complete$strata_allpos, levels = c("DENV_malaria_co_allpos", "DENV_solo_allpos", "malaria_solo_allpos", "DENV_malaria_neg_allpos"))
+
+fits <- lapply(clin_vars_nonsparse, function(x) {glm(substitute(i~factor(strata_allpos), list(i = as.name(x))), family="binomial", data = complete)})
+coef<-lapply(fits, coefficients)
+coef<-lapply(fits, function(x) {exp(cbind("Odds ratio" = coef(x), confint(x, level = 0.998, parallel="multicore", ncpus=4)))})
+lapply(coef, function(x) write.table( data.frame(x), '210120-Table4-ORs.csv'  , append= T, sep=',' ))
+
+#https://stats.stackexchange.com/questions/63222/getting-p-values-for-multinom-in-r-nnet-package
+#install.packages("afex")
+library(afex)
+set_sum_contrasts() # use sum coding, necessary to make type III LR tests valid
+library(car)
+#install.packages("AER")
+library(AER)
+p<-lapply(fits, coeftest)
+library(broom)
+ptable<-lapply(p, tidy)
+lapply(ptable, function(x) write.table( data.frame(x), 'symtoms_acute_OR_dec5.csv'  , append= T, sep=',' ))
 ```
 
+
 ```{r}
-#Load original data, delete prior to publication "2022-01-13_AIC_personID_clean.rda"
-load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-01-13_AIC_personID_clean.rda")
-#Subset to AIC
-AIC<-df[which(substr(df$person_id, 2, 2)=="F"),] #has 52789 obs
+#https://stats.stackexchange.com/questions/63222/getting-p-values-for-multinom-in-r-nnet-package
+#install.packages("afex")
+library(afex)
+set_sum_contrasts() # use sum coding, necessary to make type III LR tests valid
+library(car)
+#install.packages("AER")
+library(AER)
+p<-lapply(fits, coeftest)
+library(broom)
+ptable<-lapply(p, tidy)
+lapply(ptable, function(x) write.table( data.frame(x), 'symtoms_acute_OR_dec5.csv'  , append= T, sep=',' ))
+```
+#12/6/21 Diagnostic concordance
+```{r}
+table(vA$strata_allpos, vA$primary_diagnosis, exclude = NULL)
+table(complete$strata_allpos, complete$primary_diagnosis, exclude = NULL)
+table(complete$oth_primary_diagnosis, exclude = NULL)
+table(vA$secondary_diagnosis, vA$oth_secondary_diagnosis, exclude = NULL)
+table(vA$primary_diagnosis, vA$secondary_diagnosis, exclude = NULL)
+#create binary clinician diagnosis of malaria
+vA$MS_dxmal_CO<-vA$primary_diagnosis
+vA$MS_dxmal_CO[vA$MS_dxmal_CO==99]<-NA
+vA$MS_dxmal_CO[vA$MS_dxmal_CO>1]<-0
+vA$MS_dxmal_CO<-as.numeric(vA$MS_dxmal_CO)
+table(vA$primary_diagnosis, vA$MS_dxmal_CO, exclude = NULL)
+#create binary malaria status from strata_all
+vA$MS_dxmal_strata<-vA$strata_allpos
+vA$MS_dxmal_strata[vA$MS_dxmal_strata=="DENV_malaria_co_allpos"]<-1
+vA$MS_dxmal_strata[vA$MS_dxmal_strata=="malaria_solo_allpos"]<-1
+vA$MS_dxmal_strata[vA$MS_dxmal_strata=="DENV_solo_allpos"]<-0
+vA$MS_dxmal_strata[vA$MS_dxmal_strata=="DENV_malaria_neg_allpos"]<-0
+vA$MS_dxmal_strata<-as.numeric(vA$MS_dxDENV_strata)
+table(vA$strata_allpos, vA$MS_dxmal_strata, exclude = NULL)
+#create binary clinician dx denv
+vA$MS_dxDENV_CO<-vA$primary_diagnosis
+vA$MS_dxDENV_CO[vA$MS_dxDENV_CO==99]<-NA
+vA$MS_dxDENV_CO[vA$MS_dxDENV_CO<3]<-0
+vA$MS_dxDENV_CO[vA$MS_dxDENV_CO>3]<-0
+vA$MS_dxDENV_CO[vA$MS_dxDENV_CO==3]<-1
+vA$MS_dxDENV_CO<-as.numeric(vA$MS_dxDENV_CO)
+table(vA$primary_diagnosis, vA$MS_dxDENV_CO, exclude = NULL)
+#create binary denv status from strata_all
+vA$MS_dxDENV_strata<-vA$strata_allpos
+vA$MS_dxDENV_strata[vA$MS_dxDENV_strata=="DENV_malaria_co_allpos"]<-1
+vA$MS_dxDENV_strata[vA$MS_dxDENV_strata=="malaria_solo_allpos"]<-0
+vA$MS_dxDENV_strata[vA$MS_dxDENV_strata=="DENV_solo_allpos"]<-1
+vA$MS_dxDENV_strata[vA$MS_dxDENV_strata=="DENV_malaria_neg_allpos"]<-0
+vA$MS_dxDENV_strata<-as.numeric(vA$MS_dxDENV_strata)
+table(vA$strata_allpos, vA$MS_dxDENV_strata, exclude = NULL)
+#malaria concordance
+mal<-chisq.test(table(vA$MS_dxmal_CO, vA$MS_dxmal_strata))
+mal
+denv<-chisq.test(table(vA$MS_dxDENV_CO, vA$MS_dxDENV_strata))
+denv
+
+table(vA$MS_dxmal_CO, vA$MS_dxmal_strata, exclude = NULL)
+
+cor(vA$MS_dxmal_CO, vA$MS_dxmal_strata)
+
+str(vA$MS_dxmal_strata)
+
+
+vA$diagnosisMS<-vA$primary_diagnosis
+vA$diagnosisMS[vA$diagnosisMS==2]<-8
+vA$diagnosisMS[vA$diagnosisMS==4]<-8
+vA$diagnosisMS[vA$diagnosisMS==5]<-8
+vA$diagnosisMS[vA$diagnosisMS==6]<-8
+vA$diagnosisMS[vA$diagnosisMS==7]<-8
+vA$diagnosisMS[vA$diagnosisMS==99]<-NA
+table(vA$strata_allpos, vA$diagnosisMS, exclude = NULL)
+
+complete<-vA[which(vA$complete==1),] #6208 obs
+table(complete$strata_allpos, complete$diagnosisMS, exclude = NULL)
+complete$diagnosis_strata<-complete$strata_allpos
+complete$diagnosis_strata[complete$diagnosis_strata=="DENV_malaria_co_allpos"]<-
+complete$diagnosis_strata[complete$diagnosis_strata=="DENV_malaria_neg_allpos"]<-8
+complete$diagnosis_strata[complete$diagnosis_strata=="DENV_solo_allpos"]<-3
+complete$diagnosis_strata[complete$diagnosis_strata=="malaria_solo_allpos"]<-1
+```
+#Figure S2 PedsQL
+```{r}
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-01-27_pedsql_scores_added.rda") #this df only contains vA
+grep("score", names(df), value = TRUE)
+pedsqlscores<-grep("score", names(df), value = TRUE)
+library(tableone)
+Allscores<-CreateTableOne(
+  vars = pedsqlscores, 
+  strata = "strata_allpos",
+  data=df, 
+  includeNA = FALSE,
+  testNonNormal = kruskal.test,
+  smd = TRUE,
+  addOverall = FALSE
+)
+
+
+x<-print(Allscores, 
+  nonnormal = pedsqlscores, 
+  quote = F, 
+  noSpaces = TRUE, 
+  includeNA=TRUE, 
+  printToggle = FALSE, 
+  showAllLevels = TRUE, 
+  formatOptions = list(big.mark = ","))
+summary(Allscores)
+## Save to a CSV file
+write.csv(x, file = paste(Sys.Date(), "pedsql.csv", sep = "_"))
+
+
+
 ```
 
-#Create deidentified dataframe
+
+#Figure S2 PedsQL
 ```{r}
-#Import subject numbers and visit
-df <- AIC[c("person_id", "redcap_event_name")]
-names(df)[names(df)== "redcap_event_name"]<-"redcap"
-df$redcap[df$redcap=="patient_informatio_arm_1"]<-"info"
-df$redcap[df$redcap=="visit_a_arm_1"]<-"a"
-df$redcap[df$redcap=="visit_a2_arm_1"]<-"a2"
-df$redcap[df$redcap=="visit_b_arm_1"]<-"b"
-df$redcap[df$redcap=="visit_b2_arm_1"]<-"b2"
-df$redcap[df$redcap=="visit_c_arm_1"]<-"c"
-df$redcap[df$redcap=="visit_c2_arm_1"]<-"c2"
-df$redcap[df$redcap=="visit_d_arm_1"]<-"d"
-df$redcap[df$redcap=="visit_d2_arm_1"]<-"d2"
-df$redcap[df$redcap=="visit_e_arm_1"]<-"e"
-df$redcap[df$redcap=="visit_f_arm_1"]<-"f"
-df$redcap[df$redcap=="visit_g_arm_1"]<-"g"
-df$redcap[df$redcap=="visit_h_arm_1"]<-"h"
-df$redcap[df$redcap=="visit_i_arm_1"]<-"i"
-df$redcap[df$redcap=="visit_j_arm_1"]<-"j"
-df$redcap[df$redcap=="visit_u24_arm_1"]<-"u"
-df$redcap[df$redcap=="visit_u24_fu_arm_1"]<-"u2"
-table(df$redcap)
-setwd("C:/Users/david/Documents/GitHub/Public/Vu-et-al-dengue-malaria-machine-learning") 
-save(df, file=paste(Sys.Date(),"de-identified.rda", sep="_"))
-#Import 
+pedsql<-complete[, c("person_id", "redcap",  "ms_strata", "ms_denvmal_coinfect", "ms_denv", "ms_malaria", "ms_notdenvmal", "ms_malaria_dxCO", "ms_denv_dxCO", "ms_rec_admit", "age_years", "sex_z", "self_total_score", "self_physical_score", "self_psych_score", "self_emotional_score", "self_social_score", "self_school_score", "parent_total_score", "parent_physical_score", "parent_psych_score", "parent_emotional_score", "parent_social_score", "parent_school_score")]
+scores<-c("self_total_score", "self_physical_score", "self_psych_score", "self_emotional_score", "self_social_score", "self_school_score", "parent_total_score", "parent_physical_score", "parent_psych_score", "parent_emotional_score", "parent_social_score", "parent_school_score")
+pedsqlsummary<-CreateTableOne(vars = scores, data=pedsql, strata = "ms_strata")
+print(pedsqlsummary, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
+summary(pedsqlsummary)
+pedsql.csv<-print(pedsqlsummary, exact = scores, quote = F, noSpaces = TRUE, includeNA=TRUE, printToggle = FALSE)
+write.csv(pedsql.csv, file = paste(Sys.Date(), "pedsql.csv", sep = "_"))
+```
+
+
+#statistically different variables
+```{r}
+clin_vars<-c("sym_fever", "p_fever", "sym_chills", "sym_malaise", "sym_bodyache", "sym_anorexia", "sym_lethargic", "sym_lessactive", "sym_irritable", "p_ne_irritable", "sym_nightsweats", "sym_itchiness",  "sym_headache", "sym_dizziness", "sym_seizures", "p_ne_postictal", "sym_alteredms", "p_ne_lethargic", "sym_neckstiffness", "p_heent_stiffneck", "p_ne_meningismus", "sym_photophobia", "sym_retroorbitalheadache", "p_ne_gaitabnl", "p_ne_ataxic", "p_ne_weakness", "p_ne_hyporeflexia", "p_ne_hyperreflexia", "p_muskl_weakness", "p_ne_pmhx", "sym_coryza", "sym_redeyes", "p_heent_red_eyes", "sym_eyedischarge", "p_heent_eye_disch", "sym_itchy_eyes", "sym_rhinorrhea", "p_heent_nsl_drn_congest", "sym_otalgia", "sym_eardc", "p_heent_serousotitis", "sym_pharyngitis", "p_heent_pharyngitis", "sym_mouthsores", "p_heent_mouthsores", "p_heent_thrush", "sym_dysgeusia", "sym_mouth_odor", "sym_facial_swelling", "p_heent_face_swelling", "p_heent_hx_chronic_dx", "p_heent_other", "sym_cough", "sym_dyspnea", "sym_chestpain",  "p_chest_dyspnea","p_chest_tachypnea", "p_chest_wheezes", "p_chest_ronchrale", "p_chest_other", "p_chest_hx_asthma", "sym_palpitations", "p_card_tachy", "p_card_murmur", "p_card_delayedcaprefill", "sym_abpain", "p_abd_ttp_any", "p_abd_ttp_left", "p_abd_ttp_right", "p_abd_ttp_lower", "p_abd_ttp_epigastric", "p_abd_ttp_diffuse", "sym_abdistend", "sym_nausea", "sym_vomiting", "sym_diarrhea", "sym_bloody_vomitstool", "p_abd_bs_hyper", "p_abd_distended", "p_abd_hepatomegaly", "p_abd_splemegaly", "sym_constipation", "p_abd_bs_absent", "p_abd_other" , "sym_dysuria", "sym_hematuria", "sym_myalgia", "sym_jointpain", "p_muskl_jwrmth", "p_muskl_jred", "p_muskl_jtend", "sym_bonepain", "sym_backache", "p_muskl_back", "p_muskl_trauma", "p_muskl_chest", "sym_rash", "p_derm_rash", "p_derm_macpap", "p_derm_petech", "p_derm_vesicles", "p_derm_rash_face", "p_derm_rash_torso", "p_derm_ssti", "p_derm_tnea", "p_derm_scar", "p_derm_hyperpigment", "p_derm_arthropod", "p_derm_trauma", "p_derm_other",  "sym_pallor", "p_heme_pallor", "sym_epistaxis", "sym_bleeding_gums", "sym_jaundice", "p_heme_jaundice", "p_heme_icterus", "sym_bruising", "p_derm_bruising", "p_heme_pmhx", "sym_swollen_nodes", "p_lymph_cerv_aden", "p_lymph_axil_aden", "p_lymph_inguin_aden", "sym_extremity_edema", "p_lymph_edema", "p_lymph_edema_LE", "sym_other", "p_misc_pmhx")
+sign.clin_vars<-c("sym_chills", "sym_malaise", "sym_bodyache", "sym_anorexia", "sym_headache", "sym_dizziness", "sym_alteredms", "p_ne_lethargic", "p_ne_weakness", "sym_coryza", "p_heent_red_eyes", "p_heent_eye_disch", "sym_rhinorrhea", "sym_pharyngitis", "sym_cough", "p_chest_ronchrale", "p_card_tachy", "sym_abpain", "sym_nausea", "sym_vomiting", "sym_myalgia", "sym_jointpain", "p_muskl_jwrmth",  "p_muskl_jred", "p_muskl_jtend", "sym_bonepain", "sym_rash", "p_derm_rash", "p_derm_macpap", "p_lymph_cerv_aden", "p_abd_splemegaly")
 
 ```
-#Screened vs enrolled
+
+#check completeness of data set
 ```{r}
-#Number of assigned person_id = screened participants
-library(dplyr) 
-n_distinct(df$person_id) #8004 screened
-#Number of enrolled = those with redcap=="info"
-table(df$redcap, exclude = NULL)#7543 enrolled
+ls(df)
+#remove afi, complete, redcap
+df<-df[, !grepl("complete|afi|recap", names(df))]
+summary(df[,c(grep("ms_", names(df)))]) #6 missing values for ms_age_years, 6 each missing for ms_denv_dxCO and ms_malaria_dxCO
+summary(df[,c(grep("score|total", names(df)))]) #2000-3000 missing mean score which includes both self and parrent. These cannot be part of the primary analysis due to missingness
+#Resolving NAs assigning 0
+df$ms_denv_dxCO[is.na(df$ms_denv_dxCO)]<-0
+df$ms_malaria_dxCO[is.na(df$ms_malaria_dxCO)]<-0
+#reassigned NAs in binary outcomes as 0
+df$ms_notdenvmal<-as.numeric(df$ms_notdenvmal)
+df$ms_notdenvmal[is.na(df$ms_notdenvmal)]<-0
+df$ms_denvmal_coinfect<-as.numeric(df$ms_denvmal_coinfect)
+df$ms_denvmal_coinfect[is.na(df$ms_denvmal_coinfect)]<-0
+#df$ms_notdenvmal_dxCO[is.na(df$ms_notdenvmal_dxCO)]<-0 #omit this because confusing, CO did not actively exclude coinfection
+df$ms_rec_admit[is.na(df$ms_rec_admit)]<-0
+#2 missing visit year/month
+table(df$person_id[is.na(df$ms_age_years)], exclude = NULL)
+table(df$person_id[is.na(df$ms_visitmonth)], exclude = NULL)
+table(df$person_id[is.na(df$ms_visityear)], exclude = NULL)
+summary(df$ms_age_years)
+#pedsql
+summary(df[,c(grep("mean", names(df)))])#still with nearly 2000 missing values
+#Due to large proportion of missing pedsql values, will omit these from primary analyses
+save(df, file=paste(Sys.Date(),"naresolved_for_modeling.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-15_naresolved_for_modeling.rda")
+```
+#Imputation of missing values
+```{r}
+#omit variables not used in modeling
+df<-df[, !grepl("score|ms_notdenvmal_dxCO|redcap|total", names(df))]
+summary(df)
+#impute missing ages using multiple imputation
+#multiple imputation
+if (!require(missForest)) install.packages("missForest")
+library(missForest)
+summary(df)
+str(df)
+lapply(df[,c(grep("ms_", names(df)))], str, exclude = NULL)
+lapply(df[,c(grep("pe_", names(df)))], str, exclude = NULL)
+lapply(df[,c(grep("sym_", names(df)))], str, exclude = NULL)
+#df.imp<-missForest(df) results in error with all clin variables
+#will omit for imputation
+#dfnoclin<-dfpluspedql[, !grepl("sym_|pe_|score|total", names(dfpluspedql))]
+#lapply(dfnoclin, summary)
+#wfaz, missing 1200, cannot do imputation on this
+#dfnoclin<-dfnoclin[, !grepl("person_id|redcap|wfaz", names(dfnoclin))]
+#summary(dfnoclin)
+df.imp<-missForest(df[, 2:ncol(df)]) #because columns 1 and 2 are character
+save(df.imp, file=paste(Sys.Date(),"missForest.rda", sep="_"))
+df.imp$OOBerror
+df.imputed<-as.data.frame(df.imp$ximp) #does not include person_id
+summary(df.imputed)
+save(df.imputed, file=paste(Sys.Date(),"imputed.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-15_imputed.rda")
+df<-df.imputed
+df$ms_site[df$ms_site=="R"]<-"C"
+df$ms_site<-droplevels(df$ms_site)
+str(df$ms_site)
+```
+#Split df to check variable classes
+```{r}
+summary(df)
+lapply(df[,c(grep("ms_", names(df)))], summary, exclude = NULL)
+lapply(df[,c(grep("pe_", names(df)))], table, exclude = NULL)
+lapply(df[,c(grep("sym_", names(df)))], table, exclude = NULL)
+```
+#Relevel outcome factors so 1 comes first (convenient for getting parameters)
+```{r}
+df$ms_denv<-ordered(df$ms_denv, levels = c("1", "0"))
+df$ms_denv_dxCO<-ordered(df$ms_denv_dxCO, levels = c("1", "0"))
+df$ms_denvmal_coinfect<-ordered(df$ms_denvmal_coinfect, levels = c("1", "0"))
+df$ms_malaria<-ordered(df$ms_malaria, levels = c("1", "0"))
+df$ms_malaria_dxCO<-ordered(df$ms_malaria_dxCO, levels = c("1", "0"))
+df$ms_notdenvmal<-ordered(df$ms_notdenvmal, levels = c("1", "0"))
+df$ms_rec_admit<-ordered(df$ms_rec_admit, levels = c("1", "0"))
+df$ms_female<-ordered(df$ms_female, levels = c("1", "0"))
+df$ms_rural<-ordered(df$ms_rural, levels = c("1", "0"))
+library(dplyr)
+relev <- function(f) ordered(f, levels = c("1", "0"))
+# transform columns that start with "x"
+df <- mutate_each(df, funs(relev), starts_with("pe_"))
+df <- mutate_each(df, funs(relev), starts_with("sym_"))
+# transform columns that have V then a number
+#df <- mutate_each(df, funs(relev), matches("^V\\d+"))
+```
+
+#Concordance of CO vs lab diagnosis in complete cohort
+```{r}
+if (!require(epiR)) install.packages('epiR')
+library(epiR)
+#library(caret)
+#library(dplyr)
+#library(tibble)
+#agreement between CO and lab diagnosis of malaria 
+table(df$ms_malaria, df$ms_malaria_dxCO, exclude = NULL)#TP 2638, FN 507, FP 621, TN 2442
+(2638+2442)/(2638+2442+621+507)#Accuracy = (TP+TN)/(TP+TN+FP+FN) = 81.8
+2638/(2638+507)#Sensitivity = (TP)/(TP+FN) = 83.88
+2442/(2442+621)#Specificity =  (TN)/(TN+FP) = 79.73
+2638/(2638+621)#PPV = TP/(TP+FP) = 80.95
+2442/(2442+621)#NPV = TN/(TN+FN) = 79.73
+
+temp<-table(df$ms_malaria, df$ms_malaria_dxCO, exclude = NULL)
+#epi.tests needs table inputed as TP in left upper, FN left lower, FP right upper, TN right lower
+epi.tests(temp, method = "exact", digits = 3, conf.level = 0.998)
+if (!require(irr)) install.packages('irr')
+library(irr)
+agree(df[, c("ms_malaria", "ms_malaria_dxCO")], tolerance = 0) #81.8% agreement
+kappa2(df[, c("ms_malaria", "ms_malaria_dxCO")]) #0.636, p=0
+if (!require(pROC)) install.packages('pROC')
+library(pROC)
+#need to convert factors to numeric
+df$ms_malaria<-as.numeric(df$ms_malaria)
+df$ms_malaria_dxCO<-as.numeric(df$ms_malaria_dxCO)
+roc(ms_malaria ~ ms_malaria_dxCO, data = df)
+
+roc_malaria_dxCO <- roc(df$ms_malaria,
+            df$ms_malaria_dxCO, percent=TRUE,
+            # arguments for auc
+            #partial.auc=c(0,100), partial.auc.correct=TRUE,
+            #partial.auc.focus="sens",
+            # arguments for ci
+            ci=TRUE, boot.n=100, ci.alpha=0.998, stratified=FALSE,
+            # arguments for plot
+            plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+            print.auc=TRUE, show.thres=TRUE)
+
+#agreement for DENV
+table(df$ms_denv)
+table(df$ms_denv, df$ms_denv_dxCO,exclude = NULL)
+temp<-table(df$ms_denv, df$ms_denv_dxCO)
+epi.tests(temp, method = "exact", digits = 3, conf.level = 0.998)
+agree(df[, c("ms_denv", "ms_denv_dxCO")], tolerance = 0) #79.8% agreement
+kappa2(df[, c("ms_denv", "ms_denv_dxCO")]) #-0.011, p=0.358
+
+df$ms_denv<-as.numeric(df$ms_denv)
+df$ms_denv_dxCO<-as.numeric(df$ms_denv_dxCO)
+roc(ms_denv ~ ms_denv_dxCO, data = df)
+roc_denv_dxCO <- roc(df$ms_denv,
+            df$ms_denv_dxCO, percent=TRUE,
+            ci=TRUE, boot.n=100, ci.alpha=0.998, stratified=FALSE,
+            plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+            print.auc=TRUE, show.thres=TRUE)
+```
+#Create partition
+```{r}
+if (!require(caret)) install.packages('caret')
+library(caret)
+#Create partition
+trainIndex<-createDataPartition(df$ms_strata, p=0.7, list = FALSE)
+train.set<-df[trainIndex,]
+test.set<-df[-trainIndex,]
+save(trainIndex, file = paste(Sys.Date(),"trainIndex.rda", sep="_"))
+save(train.set, file=paste(Sys.Date(),"trainingset.rda", sep="_"))
+save(test.set, file=paste(Sys.Date(),"testset.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-15_trainIndex.rda")
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-25_trainingset.rda")
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-25_testset.rda")
+#identify subset of clinical variables for model testing
+```
+#Evaluate Some Algorithms
+```{r}
+# Run algorithms using 10-fold cross validation
+control <- trainControl(method="cv", number=10)
+metric <- "Accuracy"
+#We are using the metric of “Accuracy” to evaluate models. This is a ratio of the number of correctly predicted instances in divided by the total number of instances in the dataset multiplied by 100 to give a percentage (e.g. 95% accurate). We will be using the metric variable when we run build and evaluate each model next.
+```
+#Reorder factor variables so 1 comes before 0
+```{r}
+str(train.set)
+```
+
+
+#Build models to predict strata
+```{r}
+#We reset the random number seed before reach run to ensure that the evaluation of each algorithm is performed using exactly the same data splits. It ensures the results are directly comparable.
+train.strata<-train.set[, !grepl("ms_denv|ms_malaria|ms_not", names(train.set))]
+names(train.strata)
+table(train.strata$ms_strata, exclude = NULL)
+#Boosted logistic regression
+set.seed(7)
+strata.lr <- train(ms_strata~., data=train.strata, method="LogitBoost", metric=metric, trControl=control, na.action=na.exclude)
+# CART
+set.seed(7)
+strata.cart <- train(ms_strata~., data=train.strata, method="rpart", metric=metric, trControl=control, na.action=na.exclude)
+# Random Forest
+set.seed(7)
+strata.rf <- train(ms_strata~., data=train.strata, method="rf", metric=metric, trControl=control, na.action=na.exclude)
+# SVM
+set.seed(7)
+strata.svm <- train(ms_strata~., data=train.strata, method="svmRadial", metric=metric, trControl=control, na.action=na.exclude) #Radial Basis Function Kernal, altnerate scvRadialCost
+#Naive Bayes
+set.seed(7)
+strata.nB <- train(ms_strata~., data=train.strata, method="naive_bayes", metric=metric, trControl=control, na.action=na.exclude) 
+#Neural networks
+set.seed(7)
+strata.MLP <- train(ms_strata~., data=train.strata, method="mlpWeightDecay", metric=metric, trControl=control, na.action=na.exclude) 
+#Convoluted neural networks
+# summarize accuracy of models
+results.strata <- resamples(list(lr=strata.lr, cart=strata.cart, rf=strata.rf, svm=strata.svm, naiveBayes=strata.nB, nn=strata.MLP))
+summary(results.strata)
+# compare accuracy of models
+dotplot(results.strata)
+# summarize Best Model
+print(strata.lr)
+print(strata.cart)
+print(strata.rf)
+print(strata.svm)
+print(strata.nB)
+print(strata.MLP)
+#Variable importance
+varImp(strata.lr)
+varImp(strata.cart)
+varImp(strata.rf)
+varImp(strata.svm)
+varImp(strata.nB)
+varImp(strata.MLP)
+#prediction
+set.seed(7)
+teststrata.lr<-predict(object = strata.lr, test.set, type = "raw")
+set.seed(7)
+teststrata.cart<-predict(object = strata.cart, test.set, type = "raw")
+set.seed(7)
+teststrata.rf<-predict(object = strata.rf, test.set, type = "raw")
+set.seed(7)
+teststrata.svm<-predict(object = strata.svm, test.set, type = "raw")
+set.seed(7)
+teststrata.nB<-predict(object = strata.nB, test.set, type = "raw")
+set.seed(7)
+teststrata.MLP<-predict(object = strata.MLP, test.set, type = "raw")
+
+confusionMatrix(test.set$ms_strata, test.set$ms_malaria_dxCO, positive = "1")
+confusionMatrix(test.set$ms_strata, teststrata.lr, positive = "1")
+confusionMatrix(test.set$ms_strata, teststrata.cart, positive = "1")
+confusionMatrix(test.set$ms_strata, teststrata.rf, positive = "1")
+confusionMatrix(test.set$ms_strata, teststrata.svm, positive = "1")
+confusionMatrix(test.set$ms_strata, teststrata.nB, positive = "1")
+confusionMatrix(test.set$ms_strata, teststrata.MLP, positive = "1")
+
+save(strata.lr, strata.cart, strata.rf, strata.svm, strata.nB, strata.MLP, file=paste(Sys.Date(),"strata_models.RData", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-25_strata_models.RData")
+```
+#Build models to predict malaria
+```{r}
+#We reset the random number seed before reach run to ensure that the evaluation of each algorithm is performed using exactly the same data splits. It ensures the results are directly comparable.
+train.mal<-train.set[, !grepl("denv|strata|dxCO", names(train.set))]
+names(train.mal)
+table(train.mal$ms_malaria, exclude = NULL)
+#Boosted logistic regression
+set.seed(7)
+mal.lr <- train(ms_malaria~., data=train.mal, method="LogitBoost", metric=metric, trControl=control, na.action=na.exclude)
+# CART
+set.seed(7)
+mal.cart <- train(ms_malaria~., data=train.mal, method="rpart", metric=metric, trControl=control, na.action=na.exclude)
+# Random Forest
+set.seed(7)
+mal.rf <- train(ms_malaria~., data=train.mal, method="rf", metric=metric, trControl=control, na.action=na.exclude)
+# SVM
+set.seed(7)
+mal.svm <- train(ms_malaria~., data=train.mal, method="svmRadial", metric=metric, trControl=control, na.action=na.exclude) #Radial Basis Function Kernal, altnerate scvRadialCost
+#Naive Bayes
+set.seed(7)
+mal.nB <- train(ms_malaria~., data=train.mal, method="naive_bayes", metric=metric, trControl=control, na.action=na.exclude) 
+#Neural networks
+set.seed(7)
+mal.MLP <- train(ms_malaria~., data=train.mal, method="mlpWeightDecay", metric=metric, trControl=control, na.action=na.exclude) 
+#Convoluted neural networks
+# summarize accuracy of models
+results.mal <- resamples(list(lr=mal.lr, cart=mal.cart, rf=mal.rf, svm=mal.svm, naiveBayes=mal.nB, nn=mal.MLP))
+summary(results.mal)
+# compare accuracy of models
+dotplot(results.mal)
+# summarize Best Model
+print(mal.lr)
+print(mal.cart)
+print(mal.rf)
+print(mal.svm)
+print(mal.nB)
+print(mal.MLP)
+#Variable importance
+varImp(mal.lr)
+varImp(mal.cart)
+varImp(mal.rf)
+varImp(mal.svm)
+varImp(mal.nB)
+varImp(mal.MLP)
+#prediction
+set.seed(7)
+testmal.lr<-predict(object = mal.lr, test.set, type = "raw")
+set.seed(7)
+testmal.cart<-predict(object = mal.cart, test.set, type = "raw")
+set.seed(7)
+testmal.rf<-predict(object = mal.rf, test.set, type = "raw")
+set.seed(7)
+testmal.svm<-predict(object = mal.svm, test.set, type = "raw")
+set.seed(7)
+testmal.nB<-predict(object = mal.nB, test.set, type = "raw")
+set.seed(7)
+testmal.MLP<-predict(object = mal.MLP, test.set, type = "raw")
+
+table(test.set$ms_malaria)
+table(test.set$ms_malaria, test.set$ms_malaria_dxCO)
+confusionMatrix(test.set$ms_malaria_dxCO, test.set$ms_malaria, positive = "1")
+table(test.set$ms_malaria, testmal.lr)
+confusionMatrix(testmal.lr, test.set$ms_malaria, positive = "1")
+table(test.set$ms_malaria, testmal.cart)
+confusionMatrix(testmal.cart, test.set$ms_malaria, positive = "1")
+table(test.set$ms_malaria, testmal.rf)
+confusionMatrix(testmal.rf, test.set$ms_malaria, positive = "1")
+table(test.set$ms_malaria, testmal.svm)
+confusionMatrix(testmal.svm, test.set$ms_malaria, positive = "1")
+table(test.set$ms_malaria, testmal.nB)
+confusionMatrix(testmal.nB, test.set$ms_malaria, positive = "1")
+table(test.set$ms_malaria, testmal.MLP)
+confusionMatrix(testmal.MLP, test.set$ms_malaria, positive = "1")
+
+save(mal.lr, mal.cart, mal.rf, mal.svm, mal.nB, mal.MLP, file=paste(Sys.Date(),"malaria_models.RData", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-23_malaria_models.RData")
+```
+#Build models to predict denv
+```{r}
+#We reset the random number seed before reach run to ensure that the evaluation of each algorithm is performed using exactly the same data splits. It ensures the results are directly comparable.
+train.denv<-train.set[, !grepl("mal|strata|dxCO", names(train.set))]
+names(train.denv)
+table(train.denv$ms_denv, exclude = NULL)
+#Boosted logistic regression
+set.seed(7)
+denv.lr <- train(ms_denv~., data=train.denv, method="LogitBoost", metric=metric, trControl=control, na.action=na.exclude)
+# CART
+set.seed(7)
+denv.cart <- train(ms_denv~., data=train.denv, method="rpart", metric=metric, trControl=control, na.action=na.exclude)
+# Random Forest
+set.seed(7)
+denv.rf <- train(ms_denv~., data=train.denv, method="rf", metric=metric, trControl=control, na.action=na.exclude)
+# SVM
+set.seed(7)
+denv.svm <- train(ms_denv~., data=train.denv, method="svmRadial", metric=metric, trControl=control, na.action=na.exclude) #Radial Basis Function Kernal, altnerate scvRadialCost
+#Naive Bayes
+set.seed(7)
+denv.nB <- train(ms_denv~., data=train.denv, method="naive_bayes", metric=metric, trControl=control, na.action=na.exclude) 
+#Neural networks
+set.seed(7)
+denv.MLP <- train(ms_denv~., data=train.denv, method="mlpWeightDecay", metric=metric, trControl=control, na.action=na.exclude) 
+#Convoluted neural networks
+# summarize accuracy of models
+results.denv <- resamples(list(lr=denv.lr, cart=denv.cart, rf=denv.rf, svm=denv.svm, naiveBayes=denv.nB, nn=denv.MLP))
+summary(results.denv)
+# compare accuracy of models
+dotplot(results.denv)
+# summarize Best Model
+print(denv.lr)
+print(denv.cart)
+print(denv.rf)
+print(denv.svm)
+print(denv.nB)
+print(denv.MLP)
+#Variable importance
+varImp(denv.lr)
+varImp(denv.cart)
+varImp(denv.rf)
+varImp(denv.svm)
+varImp(denv.nB)
+varImp(denv.MLP)
+#prediction
+set.seed(7)
+testdenv.lr<-predict(object = denv.lr, test.set, type = "raw")
+set.seed(7)
+testdenv.cart<-predict(object = denv.cart, test.set, type = "raw")
+set.seed(7)
+testdenv.rf<-predict(object = denv.rf, test.set, type = "raw")
+set.seed(7)
+testdenv.svm<-predict(object = denv.svm, test.set, type = "raw")
+set.seed(7)
+testdenv.nB<-predict(object = denv.nB, test.set, type = "raw")
+set.seed(7)
+testdenv.MLP<-predict(object = denv.MLP, test.set, type = "raw")
+
+table(test.set$ms_denv)
+table(test.set$ms_denv, test.set$ms_denv_dxCO, exclude = NULL)
+confusionMatrix(test.set$ms_denv_dxCO, test.set$ms_denv, positive = "1")
+table(test.set$ms_denv, testdenv.lr, exclude = NULL)
+confusionMatrix(testdenv.lr, test.set$ms_denv, positive = "1")
+table(test.set$ms_denv, testdenv.cart, exclude = NULL)
+confusionMatrix(testdenv.cart, test.set$ms_denv, positive = "1")
+table(test.set$ms_denv, testdenv.rf, exclude = NULL)
+confusionMatrix(testdenv.rf, test.set$ms_denv, positive = "1")
+table(test.set$ms_denv, testdenv.svm, exclude = NULL)
+confusionMatrix(testdenv.svm, test.set$ms_denv, positive = "1")
+table(test.set$ms_denv, testdenv.nB, exclude = NULL)
+confusionMatrix(testdenv.nB, test.set$ms_denv, positive = "1")
+table(test.set$ms_denv, testdenv.MLP, exclude = NULL)
+confusionMatrix(testdenv.MLP, test.set$ms_denv, positive = "1")
+
+save(denv.lr, denv.cart, denv.rf, denv.svm, denv.nB, denv.MLP, file=paste(Sys.Date(),"denv_models.RData", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-23_denv_models.RData")
+```
+#CO performance on test set
+```{r}
+if (!require(epiR)) install.packages('epiR')
+library(epiR)
+#library(caret)
+#library(dplyr)
+#library(tibble)
+#agreement between CO and lab diagnosis of malaria
+temp<-table(test.set$ms_malaria, test.set$ms_malaria_dxCO, exclude = NULL)
+#epi.tests needs table inputed as TP in left upper, FN left lower, FP right upper, TN right lower
+epi.tests(temp, method = "exact", digits = 3, conf.level = 0.998)
+if (!require(irr)) install.packages('irr')
+library(irr)
+agree(test.set[, c("ms_malaria", "ms_malaria_dxCO")], tolerance = 0) #81.8% agreement
+kappa2(test.set[, c("ms_malaria", "ms_malaria_dxCO")]) #0.636, p=0
+if (!require(pROC)) install.packages('pROC')
+library(pROC)
+#need to convert factors to numeric
+test.set$ms_malaria<-as.numeric(test.set$ms_malaria)
+test.set$ms_malaria_dxCO<-as.numeric(test.set$ms_malaria_dxCO)
+roc(ms_malaria ~ ms_malaria_dxCO, data = test.set)
+
+roc_malaria_dxCO <- roc(test.set$ms_malaria,
+            test.set$ms_malaria_dxCO, percent=TRUE,
+            # arguments for auc
+            #partial.auc=c(0,100), partial.auc.correct=TRUE,
+            #partial.auc.focus="sens",
+            # arguments for ci
+            ci=TRUE, boot.n=100, ci.alpha=0.998, stratified=FALSE,
+            # arguments for plot
+            plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+            print.auc=TRUE, show.thres=TRUE)
+
+#agreement for DENV
+temp<-table(test.set$ms_denv, test.set$ms_denv_dxCO)
+epi.tests(temp, method = "exact", digits = 3, conf.level = 0.998)
+agree(test.set[, c("ms_denv", "ms_denv_dxCO")], tolerance = 0) #79.8% agreement
+kappa2(test.set[, c("ms_denv", "ms_denv_dxCO")]) #-0.011, p=0.358
+
+test.set$ms_denv<-as.numeric(test.set$ms_denv)
+test.set$ms_denv_dxCO<-as.numeric(test.set$ms_denv_dxCO)
+roc(ms_denv ~ ms_denv_dxCO, data = test.set)
+roc_denv_dxCO <- roc(test.set$ms_denv,
+            test.set$ms_denv_dxCO, percent=TRUE,
+            ci=TRUE, boot.n=100, ci.alpha=0.998, stratified=FALSE,
+            plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+            print.auc=TRUE, show.thres=TRUE)
 ```
 
 

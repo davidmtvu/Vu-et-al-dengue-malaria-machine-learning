@@ -1,0 +1,52 @@
+---
+title: "Vu et al dengue malaria co-infection and machine learning"
+output: html_notebook
+---
+
+##This file contains R code for Vu et al
+
+
+##Initial data cleaning code for MS. The following new variables were created:
+##"redcap" which abbreviates "redcap_event_name"
+##"ms_site" (C,K,R,M,U)
+##"ms_region" (C,W)
+##"ms_rural" (1,0)
+##"dob" cleaned date_of_birth_aic" should be removed for deidentification
+##"ms_visitdate" cleaned "interview_date_aic"
+##"ms_age_days" = ms_visitdate-dob in days
+##"ms_age_years" = ms_age_days/365
+##"all_symptoms"
+##"pe_all"
+##"all_clinvars" containing both all_symptoms and pe_all
+##dummy coded variables "sym_xxx" and "p_xxx"
+
+##Data originally downloaded from RedCap on 1/21/21
+##visit dates and dates of birth cleaned and removed before publication
+```{r}
+#load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-11_admit.rda")#Data downloaded from RedCap on 1/21/21, cleaned
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-01-17_dob_age_done.rda")
+#Data downloaded from RedCap on 1/21/21, cleaned subject id, dob, visit date
+```
+#Load machine learning data set 
+```{r}
+#Load machine learning data set
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-11_ms_subset.rda") 
+#Load cleaned data set to add back raw symptoms, physical exam, pedsql data
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-11_admit.rda")
+```
+##Select variables
+```{r}
+deident<-df[, c("person_id", "redcap", "gender_aic", "child_height_aic", "child_weight_aic", "symptoms_aic", "oth_symptoms_aic", "temp", "head_neck_exam", "clinician_notes_headneck", "chest", "clinician_notes_chest", "heart", "clinician_notes_heart", "abdomen", "location_abdomen_tenderness", "clinician_notes_abdomen", "nodes", "oth_nodes", "clinician_notes_nodes", "joints", "joint_location", "clinician_notes_joints", "skin", "oth_skin", "clinician_notes_skin", "neuro", "oth_neuro", "clinician_notes_neuro", "pedsql_walk_infants_parent", "pedsql_run_infants_parent", "pedsql_play_infants_parent", "pedsql_lift_infants_parent", "pedsql_work_infants_parent", "pedsql_fear_infants_parent", "pedsql_sad_infants_parent", "pedsql_angry_infants_parent", "pedsql_scared_infants_parent", "pedsql_agreement_infants_parent", "pedsql_rejected_infants_parent", "pedsql_bullied_infants_parent", "pedsql_understand_infants_parent", "pedsql_forget_infants_parent", "pedsql_schoolhomework_infants_parent", "pedsql_walk_parent", "pedsql_run_parent", "pedsql_play_parent", "pedsql_lift_parent", "pedsql_work_parent", "pedsql_fear_parent", "pedsql_sad_parent", "pedsql_angry_parent", "pedsql_scared_parent", "pedsql_agreement_parent", "pedsql_rejected_parent", "pedsql_bullied_parent", "pedsql_understand_parent", "pedsql_forget_parent", "pedsql_schoolhomework_parent", "pedsql_walk_teen_parent", "pedsql_run_teen_parent", "pedsql_play_teen_parent", "pedsql_lift_teen_parent", "pedsql_work_teen_parent", "pedsql_fear_teen_parent", "pedsql_sad_teen_parent", "pedsql_angry_teen_parent", "pedsql_scared_teen_parent", "pedsql_agreement_teen_parent", "pedsql_rejected_teen_parent", "pedsql_bullied_teen_parent", "pedsql_understand_teen_parent", "pedsql_forget_teen_parent", "pedsql_schoolhomework_teen_parent", "pedsql_walk_child_812_parent", "pedsql_run_child_812_parent", "pedsql_play_child_812_parent", "pedsql_lift_child_812_parent", "pedsql_work_child_812_parent", "pedsql_fear_child_812_parent", "pedsql_sad_child_812_parent", "pedsql_angry_child_812_parent", "pedsql_scared_child_812_parent", "pedsql_agreement_child_812_parent", "pedsql_rejected_child_812_parent", "pedsql_bullied_child_812_parent", "pedsql_understand_child_812_parent", "pedsql_forget_child_812_parent", "pedsql_schoolhomework_child_812_parent", "pedsql_walk_children_parent", "pedsql_run_children_parent", "pedsql_play_children_parent", "pedsql_lift_children_parent", "pedsql_work_children_parent", "pedsql_fear_children_parent", "pedsql_sad_children_parent", "pedsql_angry_children_parent", "pedsql_scared_children_parent", "pedsql_agreement_children_parent", "pedsql_rejected_children_parent", "pedsql_bullied_children_parent", "pedsql_understand_children_parent", "pedsql_forget_children_parent", "pedsql_schoolhomework_children_parent", "pedsql_walk_infants", "pedsql_run_infants", "pedsql_play_infants", "pedsql_lift_infants", "pedsql_work_infants", "pedsql_fear_infants", "pedsql_sad_infants", "pedsql_angry_infants", "pedsql_scared_infants", "pedsql_agreement_infants", "pedsql_rejected_infants", "pedsql_bullied_infants", "pedsql_understand_infants", "pedsql_forget_infants", "pedsql_schoolhomework_infants", "pedsql_walk", "pedsql_run", "pedsql_play", "pedsql_lift", "pedsql_work", "pedsql_fear", "pedsql_sad", "pedsql_angry", "pedsql_scared", "pedsql_agreement", "pedsql_rejected", "pedsql_bullied", "pedsql_understand", "pedsql_forget", "pedsql_schoolhomework", "pedsql_walk_teen", "pedsql_run_teen", "pedsql_play_teen", "pedsql_lift_teen", "pedsql_work_teen", "pedsql_fear_teen", "pedsql_sad_teen", "pedsql_angry_teen", "pedsql_scared_teen", "pedsql_agreement_teen", "pedsql_rejected_teen", "pedsql_bullied_teen", "pedsql_understand_teen", "pedsql_forget_teen", "pedsql_schoolhomework_teen",
+"pedsql_walk_child_812", "pedsql_run_child_812", "pedsql_play_child_812", "pedsql_lift_child_812", "pedsql_work_child_812", "pedsql_fear_child_812","pedsql_sad_child_812", "pedsql_angry_child_812", "pedsql_scared_child_812", "pedsql_agreement_child_812", "pedsql_rejected_child_812", "pedsql_bullied_child_812", "pedsql_understand_child_812", "pedsql_forget_child_812", "pedsql_schoolhomework_child_812", "pedsql_fingers_children", "pedsql_walk_children", "pedsql_run_children", "pedsql_play_children", "pedsql_lift_children", "pedsql_work_children", "pedsql_fear_children", "pedsql_sad_children", "pedsql_angry_children", "pedsql_scared_children", "pedsql_agreement_children", "pedsql_rejected_children", "pedsql_bullied_children", "pedsql_understand_children", "pedsql_forget_children", "pedsql_schoolhomework_children")]
+dfback<-df
+df<-merge(ms, deident, by=c("person_id", "redcap"), all = FALSE, sort = TRUE)
+save(df, file=paste(Sys.Date(),"deidentified_ms_dataset.rda", sep="_"))
+```
+#subset relevant variables for MS
+```{r}
+temp<-df[, grepl("person_id|redcap|ms_strata|ms_|ses_sum|faz|hfaZ|bmiAgeZ|sym_|pe_|score|total|afi", names(df))]
+ms<-temp[, !grepl("event|type|aic|u24|water|rooms_in_house|bf_months|pe_all|visitdate|age_days", names(temp))]
+names(ms)
+save(ms, file=paste(Sys.Date(),"ms_subset.rda", sep="_"))
+load("C:/Users/david/Documents/Work/GitHub/DENV_malaria_coinfection_MS/2022-03-11_ms_subset.rda")
+```
