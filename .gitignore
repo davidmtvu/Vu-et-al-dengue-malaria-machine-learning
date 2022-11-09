@@ -3,12 +3,12 @@
 .Rapp.history
 
 # Session Data files
-.RData
-.RDataTmp
-.rda
-.csv
-.xls
-.xlsx
+*.RData
+*.RDataTmp
+*.rda
+*.csv
+*.xls
+*.xlsx
 
 # User-specific files
 .Ruserdata
